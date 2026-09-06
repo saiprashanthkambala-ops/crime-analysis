@@ -21,7 +21,7 @@ COPY --from=frontend /app/frontend/dist ./frontend/dist
 WORKDIR /app/backend
 EXPOSE 8000
 
-ENV DATABASE_URL=sqlite:////app/data/crimelink.db
+ENV DATABASE_URL=sqlite:////app/data/crime_analysis.db
 RUN mkdir -p /app/data
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

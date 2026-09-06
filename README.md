@@ -103,7 +103,7 @@ FastAPI serves the built React app; open http://localhost:8000.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | `sqlite:///.../crimelink.db` | SQLAlchemy URL (set to a Mongo/Postgres URL to swap) |
+| `DATABASE_URL` | `sqlite:///.../crime_analysis.db` | SQLAlchemy URL (set to a Mongo/Postgres URL to swap) |
 | `JWT_SECRET` | dev secret | Token signing key — **set in production** |
 | `JWT_EXPIRE_MINUTES` | `720` | Token lifetime |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` | empty | When set, enables the Neo4j graph store (currently the in-process projection is used) |

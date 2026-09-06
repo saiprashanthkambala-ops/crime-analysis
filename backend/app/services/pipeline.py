@@ -29,7 +29,7 @@ from .normalization import normalize_value, normalize_name
 from .resolution import resolve_mentions
 from .relationships import discover_relationships
 
-logger = logging.getLogger("crimelink.pipeline")
+logger = logging.getLogger("crime_analysis.pipeline")
 
 PDF = "pdf"
 CSV = "csv"

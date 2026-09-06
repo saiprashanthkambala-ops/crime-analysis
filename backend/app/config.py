@@ -16,10 +16,10 @@ DATA_DIR.mkdir(exist_ok=True)
 class Settings:
     # SQLAlchemy URL. Defaults to SQLite (JSON columns emulate the flexible
     # Mongo-style documents described in the PRD).
-    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'crimelink.db'}")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'crime_analysis.db'}")
 
     # Auth
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "crimelink-dev-secret-change-me-32bytes-minimum")
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "crime-analysis-dev-secret-change-me-32bytes-minimum")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
 

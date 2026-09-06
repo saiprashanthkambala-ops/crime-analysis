@@ -1,4 +1,4 @@
-const TOKEN_KEY = 'crimelink_token'
+const TOKEN_KEY = 'crime_analysis_token'
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY)
@@ -10,7 +10,7 @@ export function setToken(token) {
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem('crimelink_user')
+  localStorage.removeItem('crime_analysis_user')
 }
 
 export async function api(path, options = {}) {

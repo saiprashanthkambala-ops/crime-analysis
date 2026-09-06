@@ -5,7 +5,7 @@ const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('crimelink_user')) } catch { return null }
+    try { return JSON.parse(localStorage.getItem('crime_analysis_user')) } catch { return null }
   })
 
   const login = async (username, password) => {
@@ -14,7 +14,7 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ username, password }),
     })
     setToken(data.access_token)
-    localStorage.setItem('crimelink_user', JSON.stringify(data.user))
+    localStorage.setItem('crime_analysis_user', JSON.stringify(data.user))
     setUser(data.user)
     return data.user
   }

@@ -89,7 +89,7 @@ def install_backend(reinstall):
     if not REQUIREMENTS.exists():
         print("  ! backend/requirements.txt not found — skipping backend install")
         return
-    marker = VENV / ".crimelink_backend_installed"
+    marker = VENV / ".crime_analysis_backend_installed"
     if not reinstall and marker.exists():
         return
     step("Installing backend dependencies (pip)")
@@ -149,8 +149,8 @@ def wait_for_server(url, timeout=90):
 # --------------------------------------------------------------------------- #
 def main():
     parser = argparse.ArgumentParser(description="Run Crime Analysis end-to-end")
-    parser.add_argument("--host", default=os.getenv("CRIMELINK_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("CRIMELINK_PORT", "8000")))
+    parser.add_argument("--host", default=os.getenv("CRIME_ANALYSIS_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.getenv("CRIME_ANALYSIS_PORT", "8000")))
     parser.add_argument("--no-browser", action="store_true", help="do not open a browser")
     parser.add_argument("--skip-install", action="store_true", help="skip dependency installs")
     parser.add_argument("--skip-build", action="store_true", help="skip the frontend build")
