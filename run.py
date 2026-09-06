@@ -7,7 +7,7 @@ Automatically:
   2. Installs backend dependencies (FastAPI, SQLAlchemy, JWT, pypdf, ...)
   3. Installs frontend dependencies (npm) and builds the React app
   4. Starts the FastAPI server (serves both the /api backend and the React UI)
-  5. Opens the application in your default browser
+    5. Opens the application in Google Chrome when it is installed
 
 Usage:
     python run.py                     # install + build + run + open browser
@@ -144,6 +144,21 @@ def wait_for_server(url, timeout=90):
     return False
 
 
+def open_browser(url):
+    """Open the URL in Google Chrome when it is installed."""
+    chrome_candidates = [
+        shutil.which("chrome"),
+        os.getenv("LOCALAPPDATA", "") + r"\Google\Chrome\Application\chrome.exe",
+        os.getenv("PROGRAMFILES", "") + r"\Google\Chrome\Application\chrome.exe",
+        os.getenv("PROGRAMFILES(X86)", "") + r"\Google\Chrome\Application\chrome.exe",
+    ]
+    chrome = next((path for path in chrome_candidates if path and Path(path).exists()), None)
+    if chrome:
+        subprocess.Popen([chrome, url])
+        return
+    webbrowser.open(url)
+
+
 # --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
@@ -199,7 +214,7 @@ def main():
             if not args.no_browser:
                 time.sleep(1)
                 print("\n==> Opening browser…")
-                webbrowser.open(base_url)
+                open_browser(base_url)
         else:
             print("\n  ! Server failed to start. See logs above.")
             server.terminate()
