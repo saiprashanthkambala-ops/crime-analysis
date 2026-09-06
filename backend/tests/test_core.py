@@ -1,4 +1,4 @@
-"""Unit + integration tests for CrimeLink core logic."""
+"""Unit + integration tests for Crime Analysis core logic."""
 import pytest
 
 from app.services.normalization import (
@@ -51,6 +51,19 @@ def test_resolve_merges_variants():
     ]
     clusters = resolve_mentions(mentions)
     assert len(clusters) == 2
+
+
+def test_resolve_canonical_name_tie_is_deterministic():
+    # identical mention counts for "Suresh" and "Suresh Reddy" must always pick
+    # the most complete spelling (never depend on hash/set iteration order)
+    mentions = [
+        {"name": "Suresh", "identifiers": {"phone": ["9123456780"], "vehicle": [], "account": [], "location": []}},
+        {"name": "Suresh Reddy", "identifiers": {"phone": ["9123456780"], "vehicle": [], "account": [], "location": []}},
+    ]
+    for _ in range(5):
+        clusters = resolve_mentions(mentions)
+        assert len(clusters) == 1
+        assert clusters[0]["name"] == "Suresh Reddy"
 
 
 # ---------------------------------------------------------------- relationships

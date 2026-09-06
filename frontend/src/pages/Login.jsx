@@ -29,7 +29,7 @@ export default function Login() {
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
           <span className="brand-mark big">⌖</span>
-          <h1>CrimeLink</h1>
+          <h1>Crime Analysis</h1>
           <p className="muted">AI-Assisted Criminal Network Analysis</p>
         </div>
         <label>Username</label>

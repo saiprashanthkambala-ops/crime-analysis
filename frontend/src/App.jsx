@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Cases from './pages/Cases'
 import CaseDetail from './pages/CaseDetail'
+import ImportData from './pages/ImportData'
 import SearchPage from './pages/SearchPage'
 import Profile from './pages/Profile'
 import Relationships from './pages/Relationships'
@@ -35,6 +36,8 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/cases" element={<Cases />} />
         <Route path="/cases/:caseId" element={<CaseDetail />} />
+        <Route path="/cases/:caseId/import" element={<ImportData />} />
+        <Route path="/import" element={<ImportData />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/persons/:personId" element={<Profile />} />
         <Route path="/relationships" element={<Relationships />} />
