@@ -16,10 +16,10 @@ DATA_DIR.mkdir(exist_ok=True)
 class Settings:
     # SQLAlchemy URL. Defaults to SQLite (JSON columns emulate the flexible
     # Mongo-style documents described in the PRD).
-    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'crimelink.db'}")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'crime_analysis.db'}")
 
     # Auth
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "crimelink-dev-secret-change-me-32bytes-minimum")
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "crime-analysis-dev-secret-change-me-32bytes-minimum")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
 
@@ -31,6 +31,10 @@ class Settings:
     # OCR (Tesseract / PaddleOCR). When TESSERACT_CMD is unavailable the
     # pipeline falls back to direct text extraction and flags the document.
     TESSERACT_CMD: str = os.getenv("TESSERACT_CMD", "tesseract")
+
+    # Dataset import limits. Individual uploaded files larger than this are
+    # rejected during validation (investigators can split large exports).
+    MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "25"))
 
     # Seed the synthetic demo dataset on startup when the DB is empty.
     AUTO_SEED: bool = os.getenv("AUTO_SEED", "1") == "1"

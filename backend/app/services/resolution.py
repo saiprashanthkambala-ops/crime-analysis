@@ -81,9 +81,19 @@ def resolve_mentions(mentions):
 
     results = []
     for c in clusters:
-        # canonical name = most common display name
+        # canonical name = most common display name; ties are broken
+        # deterministically (prefer the most complete spelling) so seeding and
+        # processing are reproducible regardless of hash randomization.
         names = [m.get("name") for m in c["mentions"] if m.get("name")]
-        canonical = max(set(names), key=names.count) if names else "Unknown"
+        if names:
+            counts = {}
+            for n in names:
+                counts[n] = counts.get(n, 0) + 1
+            best_count = max(counts.values())
+            tied = [n for n, cnt in counts.items() if cnt == best_count]
+            canonical = sorted(tied, key=lambda n: (-len(n.split()), -len(n), n))[0]
+        else:
+            canonical = "Unknown"
         results.append({
             "name": canonical,
             "mentions": c["mentions"],

@@ -135,11 +135,11 @@ def seed(db: Session):
     if db.query(User).count() > 0:
         return
 
-    admin = User(username="admin", email="admin@crimelink.local", full_name="System Admin",
+    admin = User(username="admin", email="admin@crimeanalysis.local", full_name="System Admin",
                  role="admin", password_hash=hash_password("admin123"))
-    inv1 = User(username="investigator1", email="i1@crimelink.local", full_name="Investigator One",
+    inv1 = User(username="investigator1", email="i1@crimeanalysis.local", full_name="Investigator One",
                 role="investigator", password_hash=hash_password("investor1"))
-    inv2 = User(username="investigator2", email="i2@crimelink.local", full_name="Investigator Two",
+    inv2 = User(username="investigator2", email="i2@crimeanalysis.local", full_name="Investigator Two",
                 role="investigator", password_hash=hash_password("investor2"))
     db.add_all([admin, inv1, inv2])
     db.commit()

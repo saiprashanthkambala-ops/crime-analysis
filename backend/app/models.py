@@ -71,13 +71,25 @@ class Document(Base):
     id = Column(String, primary_key=True)
     case_id = Column(String, ForeignKey("cases.id"))
     filename = Column(String)
-    file_type = Column(String)
+    file_type = Column(String)          # pdf | csv | json | txt
     status = Column(String, default="uploaded")
     error = Column(Text)
     source_text = Column(Text)
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime)
+    # ---- dataset-import metadata (see services/dataset_import.py) ----
+    file_size = Column(Integer, default=0)          # original size in bytes
+    sha256 = Column(String(64), index=True)         # content hash (duplicate detection)
+    records_processed = Column(Integer, default=0)  # events/records persisted
+    entities_discovered = Column(Integer, default=0)
+    persons_discovered = Column(Integer, default=0)
+    relationships_discovered = Column(Integer, default=0)
+    evidence_discovered = Column(Integer, default=0)
+    warnings = Column(JSON, default=list)
+    mapping = Column(JSON, default=dict)            # CSV column mapping used (field -> column)
+    detected_columns = Column(JSON, default=list)   # CSV header detected at import time
+    retry_count = Column(Integer, default=0)
     case = relationship("Case", back_populates="documents")
 
 
@@ -152,7 +164,7 @@ class Evidence(Base):
     person_a_id = Column(String, ForeignKey("persons.id"))
     person_b_id = Column(String, ForeignKey("persons.id"))
     source_document_id = Column(String, ForeignKey("documents.id"))
-    source_reference = Column(String)
+    source_reference = Column(String)  # filename / human-readable source reference
     observed_date = Column(String)
     observed_time = Column(String)
     date_precision = Column(String, default="exact")

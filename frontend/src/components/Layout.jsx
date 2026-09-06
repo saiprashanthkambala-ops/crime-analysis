@@ -18,7 +18,7 @@ export default function Layout() {
       <header className="topbar">
         <div className="brand">
           <NavLink to="/" className="brand-link">
-            <span className="brand-mark">⌖</span> CrimeLink
+            <span className="brand-mark">⌖</span> Crime Analysis
           </NavLink>
         </div>
         <form className="global-search" onSubmit={onSearch}>
@@ -31,6 +31,7 @@ export default function Layout() {
         <nav className="topnav">
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/cases">Cases</NavLink>
+          <NavLink to="/import">Import Data</NavLink>
           <NavLink to="/relationships">Connections</NavLink>
           <NavLink to="/timeline">Timeline</NavLink>
           <NavLink to="/graph">Network</NavLink>

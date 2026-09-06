@@ -4,12 +4,16 @@ Two extraction paths are provided:
 
 * ``extract_structured`` — deterministic mapping of CSV rows / JSON records
   (CDR, transactions, FIR records) into entities, person mentions and events.
+  CSV columns can be mapped to canonical Crime Analysis fields (see
+  services/dataset_import.py); when no mapping is supplied the columns are
+  auto-detected from the header.
 * ``extract_text`` — rule-based extraction from free text (PDF / TXT / OCR),
   using regex patterns for phones, vehicles, dates, times, amounts, accounts
   and a name dictionary plus title-case heuristics for person names.
 
 Everything returned carries a source reference so provenance is preserved
-downstream.
+downstream. Original values are never rewritten in place — normalization
+happens separately and the raw value is kept alongside.
 """
 import re
 
@@ -33,6 +37,7 @@ NAME_DICTIONARY = {
     "meena devi", "arjun singh", "priya nair", "vikram rao", "deepa sharma",
     "manoj verma", "kiran patel",
 }
+
 
 def _name_variants(name):
     n = name.strip()
@@ -134,102 +139,302 @@ def extract_text(text, source_document_id, source_reference, case_id):
 
 # ---------------------------------------------------------------- structured
 
-_CDR_COLS = {
-    "caller_name": ("caller_name", "caller", "caller name", "party_a", "a_party", "aname"),
-    "caller_phone": ("caller_phone", "caller_number", "a_number", "msisdn_a", "from"),
-    "callee_name": ("callee_name", "callee", "callee name", "party_b", "b_party", "bname"),
-    "callee_phone": ("callee_phone", "callee_number", "b_number", "msisdn_b", "to"),
-    "timestamp": ("timestamp", "datetime", "date_time", "call_time", "time", "date"),
-    "duration": ("duration", "call_duration", "duration_sec"),
-}
+_TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:am|pm))?$", re.I)
 
 
-def _find_col(header, aliases):
-    for i, h in enumerate(header):
-        hc = h.strip().lower().replace(" ", "_")
-        if hc in aliases:
-            return i
-    return None
+def _split_datetime(value):
+    """Return (date, time) from a raw datetime/date/time cell value.
+
+    Accepts '20-Aug-2026 10:15', '2026-08-20T10:15:00', '20-Aug-2026', '10:15'.
+    Unparseable values stay None — missing information is never invented.
+    """
+    if value is None:
+        return None, None
+    s = str(value).strip()
+    if not s:
+        return None, None
+    if _TIME_ONLY_RE.match(s):
+        return None, normalize_time(s)
+    if "T" in s or " " in s:
+        parts = [p for p in re.split(r"[T ]+", s) if p]
+        date, time = None, None
+        for p in parts:
+            if _TIME_ONLY_RE.match(p):
+                time = normalize_time(p)
+            else:
+                date = normalize_date(p)
+        return date or None, time or None
+    date = normalize_date(s)
+    # a date-looking value that normalization could not understand is left
+    # unknown rather than mis-filed as a date or time
+    if date and not _TIME_ONLY_RE.match(str(date)):
+        return date, None
+    return None, None
 
 
-def extract_csv_rows(rows, filename, source_document_id, case_id):
-    """Map generic CSV rows to a structured bundle. Handles CDR-shaped files."""
+def _merge_into_mention(mention_by_name, name, **identifiers):
+    key = name.strip().lower()
+    m = mention_by_name.get(key)
+    if not m:
+        m = {
+            "name": name.strip(),
+            "identifiers": {"phone": [], "vehicle": [], "account": [], "location": []},
+            "source_ref": None,
+            "meta": {},
+        }
+        mention_by_name[key] = m
+    for kind, value in identifiers.items():
+        if not value:
+            continue
+        bucket = m["identifiers"].setdefault(kind, [])
+        if value not in bucket:
+            bucket.append(value)
+    return m
+
+
+def _norm_cell(value):
+    """Cell to a comparable string; numbers/None handled safely."""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def auto_detect_csv_mapping(header):
+    """Detect a canonical-field -> column mapping for a CSV header."""
+    from .dataset_import import auto_detect_mapping
+    return auto_detect_mapping(header)
+
+
+def extract_csv_rows(rows, filename, source_document_id, case_id, mapping=None):
+    """Map CSV rows to a structured bundle.
+
+    ``rows``    : list of parsed rows; row 0 is the header.
+    ``mapping`` : optional {canonical_field: column_name}. When omitted (or
+                  empty) the header is auto-detected against canonical aliases.
+    """
     if not rows:
-        return {"entities": [], "mentions": [], "events": []}
+        return {"entities": [], "mentions": [], "events": [], "warnings": []}
     header = [str(c).strip() for c in rows[0]]
-    col = {k: _find_col(header, aliases) for k, aliases in _CDR_COLS.items()}
+    from .dataset_import import _norm_col_name
+    norm_header = [_norm_col_name(c) for c in header]
+
+    if mapping:
+        # resolve user mapping values (column names or indexes) to positions
+        col_by_field = {}
+        for field, colname in mapping.items():
+            if isinstance(colname, int) or (isinstance(colname, str)
+                                            and colname.strip().isdigit()):
+                pos = int(colname)
+                if 0 <= pos < len(header):
+                    col_by_field[field] = pos
+                continue
+            try:
+                pos = norm_header.index(_norm_col_name(colname))
+            except ValueError:
+                continue
+            col_by_field[field] = pos
+    else:
+        auto = auto_detect_csv_mapping(header)
+        col_by_field = {f: norm_header.index(_norm_col_name(c))
+                        for f, c in auto.items()}
     data_rows = rows[1:]
 
     entities = []
     mentions = []
     events = []
     mention_by_name = {}
+    warnings = []
 
-    def mention(name, phone=None):
-        key = name.strip().lower()
-        if key not in mention_by_name:
-            mention_by_name[key] = {
-                "name": name.strip(),
-                "identifiers": {"phone": [], "vehicle": [], "account": [], "location": []},
-                "source_ref": filename,
-            }
-            mentions.append(mention_by_name[key])
-        m = mention_by_name[key]
-        if phone and phone not in m["identifiers"]["phone"]:
-            m["identifiers"]["phone"].append(phone)
-        return m
+    def value(row, field):
+        pos = col_by_field.get(field)
+        if pos is None:
+            return ""
+        # ragged rows are padded the way the legacy pipeline did
+        return _norm_cell(row[pos] if pos < len(row) else "")
+
+    def add_entity(etype, raw, method="csv", date=None, time=None, row_no=None):
+        if raw == "":
+            return
+        entities.append({
+            "type": etype, "value": raw, "confidence": 1.0,
+            "method": method, "source_ref": filename,
+            "date": date, "time": time, "row": row_no,
+        })
 
     for ri, row in enumerate(data_rows):
         if len(row) < len(header):
             row = list(row) + [""] * (len(header) - len(row))
-        def cell(k):
-            i = col[k]
-            return str(row[i]).strip() if i is not None else ""
+        row_no = ri + 2  # 1-based including the header
 
-        caller_name = cell("caller_name")
-        caller_phone = cell("caller_phone")
-        callee_name = cell("callee_name")
-        callee_phone = cell("callee_phone")
-        ts = cell("timestamp")
+        # ---- temporal cell handling
+        date, time = None, None
+        ts = value(row, "timestamp")
+        if ts:
+            date, time = _split_datetime(ts)
+        else:
+            d_raw, t_raw = value(row, "date"), value(row, "time")
+            if d_raw:
+                date, _ = _split_datetime(d_raw)
+            if t_raw:
+                _, time = _split_datetime(t_raw)
 
-        date = normalize_date(ts)
-        time = None
-        if ts and (" " in ts or "T" in ts):
-            tail = ts.split("T")[-1].split(" ")[-1]
-            time = normalize_time(tail)
+        has_call_shape = any(f in col_by_field for f in
+                             ("caller_name", "caller_phone", "callee_name",
+                              "callee_phone", "duration"))
+        has_txn_shape = any(f in col_by_field for f in
+                            ("sender_name", "sender_account", "receiver_name",
+                             "receiver_account", "amount", "transaction_id"))
 
-        if caller_phone:
-            entities.append({"type": "PHONE", "value": caller_phone, "confidence": 1.0,
-                             "method": "csv", "source_ref": filename, "date": date, "time": time})
-        if callee_phone:
-            entities.append({"type": "PHONE", "value": callee_phone, "confidence": 1.0,
-                             "method": "csv", "source_ref": filename, "date": date, "time": time})
+        if has_call_shape:
+            caller_name = value(row, "caller_name")
+            caller_phone = value(row, "caller_phone")
+            callee_name = value(row, "callee_name")
+            callee_phone = value(row, "callee_phone")
+            duration = value(row, "duration")
+            if caller_phone:
+                add_entity("PHONE", caller_phone, date=date, time=time, row_no=row_no)
+            if callee_phone:
+                add_entity("PHONE", callee_phone, date=date, time=time, row_no=row_no)
+            if not (caller_name or caller_phone or callee_name or callee_phone):
+                continue  # fully empty row — nothing to record
+            if caller_name:
+                m = _merge_into_mention(mention_by_name, caller_name,
+                                        phone=caller_phone or None)
+                m["source_ref"] = filename
+                m["meta"].setdefault("rows", []).append(row_no)
+            if callee_name:
+                m = _merge_into_mention(mention_by_name, callee_name,
+                                        phone=callee_phone or None)
+                m["source_ref"] = filename
+                m["meta"].setdefault("rows", []).append(row_no)
+            events.append({
+                "type": "CALL",
+                "description": f"Call {caller_name or caller_phone} → "
+                               f"{callee_name or callee_phone}",
+                "date": date, "time": time,
+                "precision": "exact" if time else ("date_only" if date else "unknown"),
+                "a_name": caller_name or None, "b_name": callee_name or None,
+                "metadata": {"caller_phone": caller_phone,
+                             "callee_phone": callee_phone,
+                             "duration": duration,
+                             "record_index": row_no},
+                "source_ref": filename,
+            })
+            continue
 
-        a = mention(caller_name, caller_phone) if caller_name else None
-        b = mention(callee_name, callee_phone) if callee_name else None
+        if has_txn_shape:
+            sender = value(row, "sender_name") or None
+            receiver = value(row, "receiver_name") or None
+            sender_acc = value(row, "sender_account") or None
+            receiver_acc = value(row, "receiver_account") or None
+            amount = value(row, "amount") or None
+            txn_id = value(row, "transaction_id") or None
+            location = value(row, "location") or None
+            if sender_acc:
+                add_entity("BANK_ACCOUNT", sender_acc, date=date, time=time,
+                           row_no=row_no)
+            if receiver_acc:
+                add_entity("BANK_ACCOUNT", receiver_acc, date=date, time=time,
+                           row_no=row_no)
+            if location:
+                add_entity("LOCATION", location, date=date, time=time, row_no=row_no)
+            if not (sender or receiver or sender_acc or receiver_acc or amount
+                    or txn_id):
+                continue
+            if sender:
+                m = _merge_into_mention(mention_by_name, sender,
+                                        account=sender_acc)
+                m["source_ref"] = filename
+                m["meta"].setdefault("rows", []).append(row_no)
+            if receiver:
+                m = _merge_into_mention(mention_by_name, receiver,
+                                        account=receiver_acc)
+                m["source_ref"] = filename
+                m["meta"].setdefault("rows", []).append(row_no)
+            desc = f"Transaction {sender or ''} → {receiver or ''}"
+            if amount:
+                desc += f" ₹{amount}"
+            events.append({
+                "type": "TRANSACTION",
+                "description": desc,
+                "date": date, "time": time,
+                "precision": "exact" if time else ("date_only" if date else "unknown"),
+                "a_name": sender, "b_name": receiver,
+                "metadata": {"amount": amount or None,
+                             "transaction_id": txn_id,
+                             "sender_account": sender_acc,
+                             "receiver_account": receiver_acc,
+                             "location": location,
+                             "record_index": row_no},
+                "source_ref": filename,
+            })
+            continue
 
-        events.append({
-            "type": "CALL",
-            "description": f"Call {caller_name or caller_phone} → {callee_name or callee_phone}",
-            "date": date, "time": time,
-            "precision": "exact" if time else ("date_only" if date else "unknown"),
-            "a_name": caller_name or None, "b_name": callee_name or None,
-            "metadata": {"caller_phone": caller_phone, "callee_phone": callee_phone,
-                         "duration": cell("duration")},
-            "source_ref": filename,
-        })
+        # ---- generic person / property registry rows
+        person_name = value(row, "person_name") or None
+        phone = value(row, "phone") or None
+        vehicle = value(row, "vehicle") or None
+        account = value(row, "account") or None
+        location = value(row, "location") or None
+        has_any = any(v is not None for v in
+                      (person_name, phone, vehicle, account, location))
+        if not has_any:
+            continue
+        if phone:
+            add_entity("PHONE", phone, date=date, time=time, row_no=row_no)
+        if vehicle:
+            add_entity("VEHICLE", vehicle, date=date, time=time, row_no=row_no)
+        if account:
+            add_entity("BANK_ACCOUNT", account, date=date, time=time, row_no=row_no)
+        if location:
+            add_entity("LOCATION", location, date=date, time=time, row_no=row_no)
+        if person_name:
+            m = _merge_into_mention(mention_by_name, person_name,
+                                    phone=phone, vehicle=vehicle,
+                                    account=account, location=location)
+            m["source_ref"] = filename
+            m["meta"].setdefault("rows", []).append(row_no)
+        # A dated row is a real observation from the dataset: surface it on the
+        # timeline as a record event. Undated rows only register identifiers.
+        if date and (person_name or phone or vehicle or account or location):
+            events.append({
+                "type": "CASE_EVENT",
+                "description": "Dataset record" + (f" — {person_name}" if person_name
+                                                   else " — " + (phone or vehicle
+                                                                 or account
+                                                                 or location)),
+                "date": date, "time": time,
+                "precision": "exact" if time else ("date_only" if date else "unknown"),
+                "a_name": person_name,
+                "b_name": None,
+                "metadata": {"phone": phone or None, "vehicle": vehicle or None,
+                             "account": account or None, "location": location or None,
+                             "record_index": row_no},
+                "source_ref": filename,
+            })
 
-    return {"entities": entities, "mentions": mentions, "events": events}
+    # mentions from the registry rows keep row-level provenance in meta
+    out_mentions = []
+    for key, m in mention_by_name.items():
+        m["meta"] = m.get("meta") or {}
+        out_mentions.append(m)
+
+    if not col_by_field:
+        warnings.append("No columns could be matched to known Crime Analysis fields; no "
+                        "records were extracted from this CSV. Use the column "
+                        "mapping editor and re-import.")
+    return {"entities": entities, "mentions": out_mentions, "events": events,
+            "warnings": warnings}
 
 
 def extract_json_records(records, filename, source_document_id, case_id):
-    """Map JSON records (transactions / structured events) to a bundle."""
+    """Map JSON records (transactions / CCTV / structured events) to a bundle."""
     entities = []
     mentions = []
     events = []
     mention_by_name = {}
 
-    def mention(name, phone=None, account=None, location=None):
+    def mention(name, phone=None, account=None, location=None, vehicle=None):
         if not name:
             return None
         key = name.strip().lower()
@@ -245,11 +450,13 @@ def extract_json_records(records, filename, source_document_id, case_id):
             m["identifiers"]["phone"].append(phone)
         if account and account not in m["identifiers"]["account"]:
             m["identifiers"]["account"].append(account)
+        if vehicle and vehicle not in m["identifiers"]["vehicle"]:
+            m["identifiers"]["vehicle"].append(vehicle)
         if location and location not in m["identifiers"]["location"]:
             m["identifiers"]["location"].append(str(location))
         return m
 
-    for rec in records:
+    for rec_index, rec in enumerate(records):
         if not isinstance(rec, dict):
             continue
         rec = {k.strip().lower().replace(" ", "_"): v for k, v in rec.items()}
@@ -260,65 +467,102 @@ def extract_json_records(records, filename, source_document_id, case_id):
             person = rec.get("person") or rec.get("person_name") or rec.get("subject")
             other = rec.get("other_person") or rec.get("with") or rec.get("accompanied_by")
             loc = rec.get("location") or rec.get("place")
+            vehicle = rec.get("vehicle")
+            phone = rec.get("phone") or rec.get("mobile")
             ts = rec.get("timestamp") or rec.get("date") or rec.get("datetime")
-            date = normalize_date(ts)
-            time = None
-            if ts and (" " in str(ts) or "T" in str(ts)):
-                time = normalize_time(str(ts).split("T")[-1].split(" ")[-1])
+            date, time = _split_datetime(ts) if ts else (None, None)
             if loc:
                 entities.append({"type": "LOCATION", "value": str(loc), "confidence": 0.9,
-                                 "method": "json", "source_ref": filename, "date": date, "time": time})
-            mention(person, location=loc and str(loc))
+                                 "method": "json", "source_ref": filename, "date": date,
+                                 "time": time, "row": rec_index + 1})
+            if vehicle:
+                entities.append({"type": "VEHICLE", "value": str(vehicle), "confidence": 0.9,
+                                 "method": "json", "source_ref": filename, "date": date,
+                                 "time": time, "row": rec_index + 1})
+            if phone:
+                entities.append({"type": "PHONE", "value": str(phone), "confidence": 0.95,
+                                 "method": "json", "source_ref": filename, "date": date,
+                                 "time": time, "row": rec_index + 1})
+            mention(person, location=loc and str(loc), vehicle=vehicle and str(vehicle),
+                    phone=phone and str(phone))
             if other:
-                mention(other, location=loc and str(loc))
+                mention(other, location=loc and str(loc), vehicle=vehicle and str(vehicle))
                 events.append({
                     "type": "LOCATION_OBSERVATION",
                     "description": f"{person} and {other} observed together at {loc}",
                     "date": date, "time": time,
                     "precision": "exact" if time else ("date_only" if date else "unknown"),
                     "a_name": person or None, "b_name": other or None,
-                    "metadata": {"location": str(loc) if loc else None},
+                    "metadata": {"location": str(loc) if loc else None,
+                                 "vehicle": str(vehicle) if vehicle else None,
+                                 "record_index": rec_index + 1},
                     "source_ref": filename,
                 })
             continue
 
         sender = rec.get("sender") or rec.get("sender_name") or rec.get("from_name")
         receiver = rec.get("receiver") or rec.get("receiver_name") or rec.get("to_name")
-        sender_acc = rec.get("sender_account") or rec.get("from_account") or rec.get("account_from")
-        receiver_acc = rec.get("receiver_account") or rec.get("to_account") or rec.get("account_to")
+        sender_acc = (rec.get("sender_account") or rec.get("from_account")
+                      or rec.get("account_from"))
+        receiver_acc = (rec.get("receiver_account") or rec.get("to_account")
+                        or rec.get("account_to"))
         amount = rec.get("amount")
+        txn_id = (rec.get("transaction_id") or rec.get("txn_id")
+                  or rec.get("reference_no") or rec.get("utr"))
         ts = rec.get("timestamp") or rec.get("date") or rec.get("datetime")
         location = rec.get("location") or rec.get("city")
+        vehicle = rec.get("vehicle")
 
-        date = normalize_date(ts)
-        time = None
-        if ts and (" " in str(ts) or "T" in str(ts)):
-            tail = str(ts).split("T")[-1].split(" ")[-1]
-            time = normalize_time(tail)
+        date, time = _split_datetime(ts) if ts else (None, None)
 
         for acc in (sender_acc, receiver_acc):
             if acc:
-                entities.append({"type": "BANK_ACCOUNT", "value": str(acc), "confidence": 1.0,
-                                 "method": "json", "source_ref": filename, "date": date, "time": time})
+                entities.append({"type": "BANK_ACCOUNT", "value": str(acc),
+                                 "confidence": 1.0, "method": "json",
+                                 "source_ref": filename, "date": date, "time": time,
+                                 "row": rec_index + 1})
         if location:
-            entities.append({"type": "LOCATION", "value": str(location), "confidence": 0.9,
-                             "method": "json", "source_ref": filename, "date": date, "time": time})
+            entities.append({"type": "LOCATION", "value": str(location),
+                             "confidence": 0.9, "method": "json",
+                             "source_ref": filename, "date": date, "time": time,
+                             "row": rec_index + 1})
+        if vehicle:
+            entities.append({"type": "VEHICLE", "value": str(vehicle),
+                             "confidence": 0.9, "method": "json",
+                             "source_ref": filename, "date": date, "time": time,
+                             "row": rec_index + 1})
 
-        a = mention(sender, account=sender_acc and str(sender_acc))
+        a = mention(sender, account=sender_acc and str(sender_acc),
+                    vehicle=vehicle and str(vehicle))
         b = mention(receiver, account=receiver_acc and str(receiver_acc))
 
-        if etype in ("transaction", "payment", "transfer"):
+        if etype in ("transaction", "payment", "transfer", "case_event",
+                     "call", "event", "incident", "record"):
+            if etype in ("transaction", "payment", "transfer"):
+                evtype = "TRANSACTION"
+                desc = (f"Transaction {sender or ''} → {receiver or ''}"
+                        + (f" ₹{amount}" if amount else ""))
+            elif etype == "call":
+                evtype = "CALL"
+                desc = f"Call {sender or ''} → {receiver or ''}"
+            else:
+                evtype = "CASE_EVENT"
+                desc = str(rec.get("description") or rec.get("summary")
+                           or f"Dataset record {rec_index + 1}")[:500]
             events.append({
-                "type": "TRANSACTION",
-                "description": f"Transaction {sender or ''} → {receiver or ''}" + (f" ₹{amount}" if amount else ""),
+                "type": evtype,
+                "description": desc,
                 "date": date, "time": time,
                 "precision": "exact" if time else ("date_only" if date else "unknown"),
                 "a_name": sender or None, "b_name": receiver or None,
                 "metadata": {"amount": str(amount) if amount else None,
+                             "transaction_id": str(txn_id) if txn_id else None,
                              "sender_account": str(sender_acc) if sender_acc else None,
                              "receiver_account": str(receiver_acc) if receiver_acc else None,
-                             "location": str(location) if location else None},
+                             "location": str(location) if location else None,
+                             "record_index": rec_index + 1},
                 "source_ref": filename,
             })
 
-    return {"entities": entities, "mentions": mentions, "events": events}
+    return {"entities": entities, "mentions": mentions, "events": events,
+            "warnings": []}

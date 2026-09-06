@@ -1,24 +1,35 @@
 """End-to-end ingestion + analysis pipeline.
 
-process_document() parses an uploaded file, extracts entities/events, persists
-them with provenance, then triggers recompute_case() which (re)builds persons,
-profiles, relationships and evidence for the whole case.
+process_document() parses an uploaded file, validates it, extracts
+entities/events, persists them with provenance, then triggers recompute_case()
+which (re)builds persons, profiles, relationships and evidence for the whole
+case. All import files — including retries — flow through this single pipeline;
+there is no parallel ingestion path.
+
+Stages follow the PRD:
+    validating -> parsing|ocr_processing -> extracting -> normalizing ->
+    resolving -> analyzing -> completed|failed
 """
 import csv
 import io
 import json
+import logging
 import shutil
 import subprocess
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from ..models import AuditLog, Case, Document, Entity, Event, Evidence, Person, Relationship, ProcessingJob
 from ..config import settings, DATA_DIR
+from ..models import (AuditLog, Document, Entity, Event, Evidence,
+                      Person, ProcessingJob, Relationship)
+from .dataset_import import validate_file
 from .extraction import extract_text, extract_csv_rows, extract_json_records
 from .normalization import normalize_value, normalize_name
 from .resolution import resolve_mentions
 from .relationships import discover_relationships
+
+logger = logging.getLogger("crime_analysis.pipeline")
 
 PDF = "pdf"
 CSV = "csv"
@@ -61,8 +72,8 @@ def _ocr_text(content):
         )
         if proc.returncode == 0:
             return proc.stdout.decode("utf-8", "ignore"), True
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 - OCR is best-effort
+        logger.exception("OCR subprocess failed")
     return "", False
 
 
@@ -82,7 +93,7 @@ def extract_document_content(filename, content):
     # TXT / fallback
     try:
         return content.decode("utf-8", "ignore"), TXT, False
-    except Exception:
+    except Exception:  # noqa: BLE001
         return content.decode("latin-1", "ignore"), TXT, False
 
 
@@ -111,6 +122,7 @@ def _persist_entities(db, bundle, document, case_id):
             case_id=case_id,
             observed_date=e.get("date"),
             observed_time=e.get("time"),
+            meta={"record_index": e.get("row")} if e.get("row") else None,
         ))
     # person mention entities
     for m in bundle.get("mentions", []):
@@ -132,7 +144,7 @@ def _persist_entities(db, bundle, document, case_id):
             confidence=0.95,
             extraction_method="mention",
             source_document_id=document.id,
-            source_reference=m.get("source_ref"),
+            source_reference=m.get("source_ref") or document.filename,
             case_id=case_id,
             observed_date=m.get("date"),
             observed_time=m.get("time"),
@@ -161,26 +173,91 @@ def _set_stage(db, document, job, stage):
     db.commit()
 
 
-def process_document(db: Session, document: Document, content: bytes):
-    """Run the full pipeline for one document, advancing through PRD stages:
-    validating -> parsing|ocr_processing -> extracting -> normalizing ->
-    resolving -> analyzing -> completed|failed.
+def _counts(db, case_id):
+    entities = db.query(Entity).filter(Entity.case_id == case_id).count()
+    events = db.query(Event).filter(Event.case_id == case_id).count()
+    persons = db.query(Person).count()
+    evidence = db.query(Evidence).filter(Evidence.case_id == case_id).count()
+    return {"entities": entities, "events": events, "persons": persons,
+            "evidence": evidence}
+
+
+def _evidence_linked_relationships(db, document):
+    """Count relationship pairs supported by this document's evidence."""
+    pairs = set()
+    rows = (db.query(Evidence)
+            .filter(Evidence.source_document_id == document.id)
+            .filter(Evidence.person_a_id.isnot(None),
+                    Evidence.person_b_id.isnot(None))
+            .all())
+    for e in rows:
+        pairs.add(tuple(sorted([e.person_a_id, e.person_b_id])))
+    return len(pairs)
+
+
+def _audit(db, document, action, details=None):
+    db.add(AuditLog(
+        user_id=document.uploaded_by,
+        action=action,
+        entity_type="document",
+        entity_id=document.id,
+        details={"filename": document.filename, **(details or {})},
+    ))
+
+
+def process_document(db: Session, document: Document, content: bytes,
+                     mapping: dict = None):
+    """Run the full pipeline for one document.
+
+    Advances through the PRD stages (validating -> parsing|ocr_processing ->
+    extracting -> normalizing -> resolving -> analyzing -> completed|failed)
+    and records per-import statistics + audit events. ``mapping`` optionally
+    carries the CSV canonical-field mapping chosen by the investigator.
     """
     job = ProcessingJob(document_id=document.id, status="processing", stage="validating")
     db.add(job)
     db.commit()
     try:
+        before = _counts(db, document.case_id)
+
         _set_stage(db, document, job, "validating")
         ftype = detect_type(document.filename, content)
+        document.file_type = ftype
+        validation = validate_file(document.filename, content)
+        if not validation["ok"]:
+            message = validation["errors"][0]
+            document.status = "failed"
+            document.error = message
+            job.status = "failed"
+            job.message = message
+            db.commit()
+            _audit(db, document, "dataset_failed",
+                   {"stage": "validating", "error": message})
+            db.commit()
+            return
+        document.warnings = validation.get("warnings", []) or []
+        mapping = mapping or validation.get("mapping")
 
         # -------- parse / OCR
         needs_ocr = False
+        text = ""
         if ftype == PDF:
             _set_stage(db, document, job, "parsing")
             text = _extract_pdf_text(content)
             if not text.strip():
                 _set_stage(db, document, job, "ocr_processing")
                 text, needs_ocr = _ocr_text(content)
+                if not text.strip():
+                    document.status = "failed"
+                    document.error = ("PDF contains no readable text and OCR failed "
+                                      "(Tesseract unavailable?).")
+                    job.status = "failed"
+                    job.message = document.error
+                    db.commit()
+                    _audit(db, document, "dataset_failed",
+                           {"stage": "ocr_processing", "error": document.error})
+                    db.commit()
+                    return
         elif ftype == CSV:
             _set_stage(db, document, job, "parsing")
             text = content.decode("utf-8", "ignore")
@@ -191,38 +268,48 @@ def process_document(db: Session, document: Document, content: bytes):
             _set_stage(db, document, job, "parsing")
             try:
                 text = content.decode("utf-8", "ignore")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 text = content.decode("latin-1", "ignore")
-        document.file_type = ftype
         document.source_text = text
-        if needs_ocr and not text.strip():
-            document.status = "failed"
-            document.error = "OCR produced no text (Tesseract unavailable?)"
-            job.status = "failed"
-            job.message = document.error
-            db.commit()
-            return
 
         # -------- extract
         _set_stage(db, document, job, "extracting")
+        bundle_warnings = []
         if ftype == CSV:
             rows = list(csv.reader(io.StringIO(text)))
-            bundle = extract_csv_rows(rows, document.filename, document.id, document.case_id)
+            bundle = extract_csv_rows(rows, document.filename, document.id,
+                                      document.case_id, mapping=mapping)
+            bundle_warnings = bundle.get("warnings", [])
+            document.mapping = {k: v for k, v in (mapping or {}).items()}
         elif ftype == JSON:
             try:
                 data = json.loads(text)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                message = f"JSON structure is invalid ({exc.msg})."
                 document.status = "failed"
-                document.error = "Invalid JSON"
+                document.error = message
                 job.status = "failed"
-                job.message = document.error
+                job.message = message
+                db.commit()
+                _audit(db, document, "dataset_failed",
+                       {"stage": "extracting", "error": message})
                 db.commit()
                 return
             if isinstance(data, dict):
                 data = [data]
-            bundle = extract_json_records(data, document.filename, document.id, document.case_id)
+            bundle = extract_json_records(data, document.filename, document.id,
+                                          document.case_id)
         else:
-            bundle = extract_text(text, document.id, document.filename, document.case_id)
+            bundle = extract_text(text, document.id, document.filename,
+                                  document.case_id)
+
+        if bundle_warnings:
+            warnings = list(validation.get("warnings", []) or [])
+            for w in bundle_warnings:
+                if w not in warnings:
+                    warnings.append(w)
+            document.warnings = warnings
+            db.commit()
 
         # -------- normalize + persist
         _set_stage(db, document, job, "normalizing")
@@ -236,31 +323,84 @@ def process_document(db: Session, document: Document, content: bytes):
         _set_stage(db, document, job, "analyzing")
         # relationships/evidence are produced inside recompute_case above
 
+        # -------- statistics + completion
+        after = _counts(db, document.case_id)
+        document.records_processed = max(0, after["events"] - before["events"])
+        document.entities_discovered = max(0, after["entities"] - before["entities"])
+        document.persons_discovered = max(0, after["persons"] - before["persons"])
+        document.evidence_discovered = max(0, after["evidence"] - before["evidence"])
+        document.relationships_discovered = _evidence_linked_relationships(db, document)
         document.status = "completed"
         document.processed_at = datetime.utcnow()
         job.status = "completed"
         job.stage = "completed"
         db.commit()
+        _audit(db, document, "dataset_completed", {
+            "records": document.records_processed,
+            "entities": document.entities_discovered,
+            "persons": document.persons_discovered,
+            "evidence": document.evidence_discovered,
+            "relationships": document.relationships_discovered,
+            "ocr": needs_ocr,
+        })
+        db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()
+        logger.exception("Pipeline failed for document %s", document.id)
         db.refresh(document)
         document.status = "failed"
-        document.error = str(exc)
+        document.error = _friendly_exception(exc)
+        # the detailed technical reason stays in the server logs (logged above);
+        # the job/database only receives the investigator-readable message
         if "job" in locals() and job is not None:
             job.status = "failed"
-            job.message = str(exc)
+            job.message = document.error
         db.commit()
+        try:
+            _audit(db, document, "dataset_failed",
+                   {"stage": "processing", "error": document.error})
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+
+def _friendly_exception(exc):
+    """Map an internal exception to an investigator-readable message.
+
+    The full traceback is kept in server logs and in the job's message.
+    """
+    text = str(exc) or exc.__class__.__name__
+    if isinstance(exc, (UnicodeDecodeError,)):
+        return "File could not be read as text (encoding error)."
+    if "pypdf" in text or "PdfReader" in text:
+        return "PDF could not be parsed (corrupt or unsupported PDF)."
+    return f"Processing failed: {text[:300]}"
 
 
 UPLOAD_DIR = DATA_DIR / "uploads"
 
 
 def save_upload(document_id: str, content: bytes) -> str:
-    """Persist raw upload bytes to disk so background processing can read them."""
+    """Persist raw upload bytes to disk so background processing can read them.
+
+    Files live in a private, id-named directory (never user-supplied paths),
+    isolated from the rest of the application.
+    """
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     path = UPLOAD_DIR / f"{document_id}.bin"
     path.write_bytes(content)
     return str(path)
+
+
+def remove_document_artifacts(db: Session, document: Document):
+    """Delete the entities/events this document created so it can be reprocessed.
+
+    Persons/relationships/evidence are rebuilt case-wide by recompute_case()
+    after reprocessing, so we only remove the rows this document owns.
+    """
+    db.query(Event).filter(Event.source_document_id == document.id).delete()
+    db.query(Entity).filter(Entity.source_document_id == document.id).delete()
+    db.commit()
 
 
 def run_background(document_id: str):
@@ -278,12 +418,14 @@ def run_background(document_id: str):
             db.commit()
             return
         content = path.read_bytes()
-        process_document(db, document, content)
-        # clean up raw upload
-        try:
-            path.unlink()
-        except OSError:
-            pass
+        process_document(db, document, content, mapping=document.mapping or None)
+        # The raw upload is only removed after the pipeline *completed*, so a
+        # failed document can be retried later without re-uploading the file.
+        if db.get(Document, document_id) and document.status == "completed":
+            try:
+                path.unlink()
+            except OSError:
+                pass
     finally:
         db.close()
 
@@ -400,6 +542,7 @@ def recompute_case(db: Session, case_id: str):
             "person_a_id": pa,
             "person_b_id": pb,
             "source_ref": ev.source_reference,
+            "source_document_id": ev.source_document_id,
             "metadata": ev.meta or {},
             "case_id": case_id,
         })
@@ -466,6 +609,7 @@ def _rebuild_evidence(db, case_id, persons, events, seen_ids):
             type=kind,
             person_a_id=pa,
             person_b_id=pb,
+            source_document_id=ev.get("source_document_id"),
             source_reference=ev.get("source_ref"),
             observed_date=ev.get("date"),
             observed_time=ev.get("time"),
