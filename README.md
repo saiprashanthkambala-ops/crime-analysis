@@ -22,6 +22,7 @@ never a probability of guilt.
 | --- | --- |
 | **Auth** | JWT login/logout, RBAC (`investigator`, `admin`), case-level access control |
 | **Ingestion** | PDF (text + OCR fallback via Tesseract), CSV (CDR), JSON (transactions, CCTV), TXT. Async background processing with stage tracking (validating → parsing → ocr → extracting → normalizing → resolving → analyzing → completed/failed) |
+| **Dataset importer** | Dedicated UI (`/import` or `/cases/:id/import`) for multi-file drag & drop import: per-file validation + pre-flight checks, CSV column mapping to canonical CrimeLink fields (auto-detect + manual), content-hash duplicate detection, import history with statistics and one-click retry. Files flow through the single ingestion pipeline above |
 | **Extraction** | People, phones, vehicles, bank accounts, locations, dates, times, calls, transactions, events — all with source provenance |
 | **Normalization** | Phones, names, vehicles, accounts, dates, times — original value always preserved |
 | **Entity resolution** | Conservative same-person clustering via name similarity + shared identifiers, with persisted explainability (merged variants + signals + confidence) |
@@ -107,7 +108,43 @@ FastAPI serves the built React app; open http://localhost:8000.
 | `JWT_EXPIRE_MINUTES` | `720` | Token lifetime |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` | empty | When set, enables the Neo4j graph store (currently the in-process projection is used) |
 | `TESSERACT_CMD` | `tesseract` | OCR binary path |
+| `MAX_UPLOAD_MB` | `25` | Maximum size of a single imported file |
 | `AUTO_SEED` | `1` | Seed demo data when the DB is empty |
+
+## Dataset import
+
+Import real investigation datasets through the importer UI (**Import Data** in the
+navigation, or the **Import Dataset** button on a case) or the API:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/cases/{id}/imports/preflight` | Validate files *before* import: type/content sniffing, size, CSV/JSON structure, detected CSV columns + suggested mapping, duplicate check. Nothing is persisted. |
+| `POST /api/cases/{id}/imports` | Import one or more files (multipart `files`, optional `mapping` JSON array aligned with the files). The whole batch is validated first — any invalid file rejects the batch without persisting anything. Accepted files are queued on the standard pipeline. |
+| `GET /api/cases/{id}/imports` | Import history with per-file statistics, warnings, hash, mapping and uploader. |
+| `POST /api/documents/{id}/retry` | Retry a failed import (source file is retained until a run completes). |
+| `POST /api/cases/{id}/upload` | Legacy single-file upload (kept for API compatibility). |
+
+Workflow: **select case → drop files → per-file validation shown inline (type, size,
+content, structure, duplicates, OCR-needed) → optional CSV column mapping → import
+with upload progress → live pipeline stages → history with stats/errors/retry**.
+
+Supported formats: PDF (text layer first; Tesseract OCR fallback for scanned
+documents), CSV (auto-detected CDR / transaction / person-record shapes), JSON
+(arrays/objects of transaction, call, CCTV and event records), TXT.
+
+Column mapping: CrimeLink recognises canonical fields (caller/callee name+phone,
+sender/receiver name+account, amount, transaction ID, person name, phone, vehicle,
+account, location, date, time, timestamp) from many common header spellings
+(`phone`/`mobile`/`phone_number`/`contact_number` → the same concept) and lets the
+investigator re-map any CSV column before import. Original values and headers are
+always preserved for provenance — nothing is overwritten or fabricated.
+
+Duplicate protection: content is hashed (SHA-256) at upload; re-importing identical
+content into the same case is rejected with a pointer to the existing document,
+while identical filenames with different content, or identical content in a
+*different* case, are allowed.
+
+## Tests
 
 ---
 
@@ -147,7 +184,7 @@ data/                  # (generated) synthetic source files
 source .venv/bin/activate
 pip install pytest
 cd backend
-python -m pytest -q        # 31 tests: unit + auth/RBAC + ingestion + provenance + E2E
+python -m pytest -q        # 50 tests: unit + auth/RBAC + ingestion + provenance + dataset import + E2E
 ```
 
 ---

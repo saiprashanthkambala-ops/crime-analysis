@@ -31,6 +31,7 @@ export default function Layout() {
         <nav className="topnav">
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/cases">Cases</NavLink>
+          <NavLink to="/import">Import Data</NavLink>
           <NavLink to="/relationships">Connections</NavLink>
           <NavLink to="/timeline">Timeline</NavLink>
           <NavLink to="/graph">Network</NavLink>

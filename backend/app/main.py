@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings, BASE_DIR
-from .database import Base, engine
+from .database import Base, engine, ensure_column_migrations
 from .routers import auth, data, intelligence, admin
 from .seed import run_seed
 
@@ -15,6 +15,7 @@ from .seed import run_seed
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_column_migrations()
     if settings.AUTO_SEED:
         run_seed()
     yield

@@ -32,6 +32,10 @@ class Settings:
     # pipeline falls back to direct text extraction and flags the document.
     TESSERACT_CMD: str = os.getenv("TESSERACT_CMD", "tesseract")
 
+    # Dataset import limits. Individual uploaded files larger than this are
+    # rejected during validation (investigators can split large exports).
+    MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "25"))
+
     # Seed the synthetic demo dataset on startup when the DB is empty.
     AUTO_SEED: bool = os.getenv("AUTO_SEED", "1") == "1"
 

@@ -53,6 +53,19 @@ def test_resolve_merges_variants():
     assert len(clusters) == 2
 
 
+def test_resolve_canonical_name_tie_is_deterministic():
+    # identical mention counts for "Suresh" and "Suresh Reddy" must always pick
+    # the most complete spelling (never depend on hash/set iteration order)
+    mentions = [
+        {"name": "Suresh", "identifiers": {"phone": ["9123456780"], "vehicle": [], "account": [], "location": []}},
+        {"name": "Suresh Reddy", "identifiers": {"phone": ["9123456780"], "vehicle": [], "account": [], "location": []}},
+    ]
+    for _ in range(5):
+        clusters = resolve_mentions(mentions)
+        assert len(clusters) == 1
+        assert clusters[0]["name"] == "Suresh Reddy"
+
+
 # ---------------------------------------------------------------- relationships
 def _person(pid, name, phones=(), accounts=(), vehicles=(), locations=(), cases=()):
     return {"id": pid, "name": name,

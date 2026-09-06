@@ -24,3 +24,4 @@ backend/data/synthetic/
 *.swp
 .idea/
 .vscode/
+backend/data/uploads/

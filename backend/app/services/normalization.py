@@ -49,6 +49,13 @@ def normalize_date(value):
     s = str(value).strip()
     if not s:
         return None
+    # datetime strings ("20-Aug-2026 10:15", "2026-08-20T10:15:00", …) are
+    # normalized to their date component only; the time part is handled by
+    # normalize_time().
+    if "T" in s or " " in s:
+        s = re.split(r"[T ]+", s, maxsplit=1)[0]
+        if not s:
+            return None
     for fmt in _DATE_FORMATS:
         try:
             return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
@@ -68,17 +75,23 @@ def normalize_time(value):
     if value is None:
         return None
     s = str(value).strip()
-    m = re.match(r"^(\d{1,2}):(\d{2})(?:\s*(am|pm))?$", s, re.I)
-    if m:
-        h = int(m.group(1))
-        mm = int(m.group(2))
-        ap = (m.group(3) or "").lower()
-        if ap == "pm" and h != 12:
-            h += 12
-        if ap == "am" and h == 12:
-            h = 0
-        return f"{h:02d}:{mm:02d}"
-    return s
+    # accept "10:15", "2:10 PM", "10:15:00" (seconds dropped) and full
+    # datetime strings like "20-Aug-2026 10:15" / "2026-08-20T10:15:00"
+    m = re.match(r"^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?$", s, re.I)
+    if not m:
+        # strip a leading date part and try again (datetime values)
+        tail = re.split(r"[T ]+", s, maxsplit=1)[-1]
+        if tail != s:
+            return normalize_time(tail)
+        return s
+    h = int(m.group(1))
+    mm = int(m.group(2))
+    ap = (m.group(3) or "").lower()
+    if ap == "pm" and h != 12:
+        h += 12
+    if ap == "am" and h == 12:
+        h = 0
+    return f"{h:02d}:{mm:02d}"
 
 
 _NORMALIZERS = {
