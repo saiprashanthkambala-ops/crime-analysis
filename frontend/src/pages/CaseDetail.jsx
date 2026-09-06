@@ -70,11 +70,11 @@ export default function CaseDetail() {
             Use the dataset importer to upload PDF (text or scanned/OCR), CSV,
             JSON and TXT files. Files are validated before they touch the case,
             duplicate content is detected, and every record stays traceable to
-            its source document through the CrimeLink pipeline.
+            its source document through the Crime Analysis pipeline.
           </p>
           <ul className="feature-list small">
             <li>Multi-file drag &amp; drop with per-file validation</li>
-            <li>CSV column mapping to CrimeLink fields (auto-detect available)</li>
+            <li>CSV column mapping to Crime Analysis fields (auto-detect available)</li>
             <li>Live processing stages: validating → parsing/OCR → extracting →
               normalizing → resolving → analyzing</li>
             <li>Duplicate detection by content hash and one-click retry of failures</li>

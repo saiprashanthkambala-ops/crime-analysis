@@ -1,14 +1,14 @@
 """Dataset import support: validation, sniffing and CSV column mapping.
 
 This module is the single source of truth for *accepting* a dataset into the
-CrimeLink pipeline. Everything here returns investigator-readable messages —
+Crime Analysis pipeline. Everything here returns investigator-readable messages —
 raw stack traces never cross this boundary.
 
 Principles enforced:
 * File extensions are never trusted alone; PDF/JSON payloads must match their
   declared type, CSVs must parse, files must be non-empty and size-bounded.
 * Invalid data is rejected loudly (no silent acceptance of malformed files).
-* CSV columns are mapped to canonical CrimeLink fields. Original column
+* CSV columns are mapped to canonical Crime Analysis fields. Original column
   headers and original cell values are always preserved downstream so nothing
   the investigator uploaded is destroyed.
 * Only column *names* are considered for mapping, never file paths.
@@ -37,7 +37,7 @@ def friendly_size(limit_bytes):
 
 
 # ---------------------------------------------------------------------------
-# Canonical CSV fields (CrimeLink concepts) used by mapping + extraction.
+# Canonical CSV fields (Crime Analysis concepts) used by mapping + extraction.
 # ---------------------------------------------------------------------------
 # Each canonical field lists column aliases it can be auto-detected from.
 # Aliases are matched case-insensitively with whitespace normalized to "_".
@@ -305,13 +305,13 @@ def validate_mapping_columns(mapping, columns):
     if not mapping:
         return None, []
     if not isinstance(mapping, dict):
-        return False, ["Column mapping must be a JSON object mapping CrimeLink "
+        return False, ["Column mapping must be a JSON object mapping Crime Analysis "
                        "fields to CSV column names."]
     norm_cols = [_norm_col_name(c) for c in columns]
     cleaned = {}
     for field, col in mapping.items():
         if field not in CSV_FIELD_ALIASES:
-            errors.append(f"Unknown CrimeLink field '{field}' in column mapping.")
+            errors.append(f"Unknown Crime Analysis field '{field}' in column mapping.")
             continue
         if isinstance(col, int) or (isinstance(col, str) and col.strip().isdigit()):
             idx = int(col)

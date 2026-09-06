@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CrimeLink — one-command launcher.
+Crime Analysis — one-command launcher.
 
 Automatically:
   1. Creates a Python virtual environment (if needed)
@@ -71,7 +71,7 @@ def step(msg):
 
 def banner():
     print("=" * 62)
-    print("  CrimeLink — AI-Powered Criminal Network Analysis")
+    print("  Crime Analysis — AI-Powered Criminal Network Analysis")
     print("=" * 62)
 
 
@@ -148,7 +148,7 @@ def wait_for_server(url, timeout=90):
 # main
 # --------------------------------------------------------------------------- #
 def main():
-    parser = argparse.ArgumentParser(description="Run CrimeLink end-to-end")
+    parser = argparse.ArgumentParser(description="Run Crime Analysis end-to-end")
     parser.add_argument("--host", default=os.getenv("CRIMELINK_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("CRIMELINK_PORT", "8000")))
     parser.add_argument("--no-browser", action="store_true", help="do not open a browser")
@@ -160,10 +160,10 @@ def main():
     banner()
 
     if shutil.which("python3") is None and shutil.which("python") is None:
-        print("Python is required to run CrimeLink.")
+        print("Python is required to run Crime Analysis.")
         sys.exit(1)
     if shutil.which(npm_cmd()) is None:
-        print("Node.js / npm is required to build the CrimeLink frontend.")
+        print("Node.js / npm is required to build the Crime Analysis frontend.")
         print("Install Node.js from https://nodejs.org and retry.")
         sys.exit(1)
 
@@ -179,7 +179,7 @@ def main():
 
     # 3. start server
     base_url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{args.port}"
-    step(f"Starting CrimeLink server at {base_url}")
+    step(f"Starting Crime Analysis server at {base_url}")
     uvicorn = str(venv_bin("uvicorn"))
     server = subprocess.Popen(
         [uvicorn, "app.main:app", "--host", args.host, "--port", str(args.port)],
@@ -190,7 +190,7 @@ def main():
         # 4. wait until ready
         step("Waiting for the server to be ready…")
         if wait_for_server(f"{base_url}/health"):
-            print("\n  ✓ CrimeLink is running!")
+            print("\n  ✓ Crime Analysis is running!")
             print(f"  ✓ Open {base_url} in your browser")
             print("\n  Demo logins:")
             print("      investigator1 / investor1")
@@ -209,7 +209,7 @@ def main():
         print("\n  (Press Ctrl+C to stop)\n")
         server.wait()
     except KeyboardInterrupt:
-        print("\n\n==> Shutting down CrimeLink…")
+        print("\n\n==> Shutting down Crime Analysis…")
         server.terminate()
         try:
             server.wait(timeout=5)

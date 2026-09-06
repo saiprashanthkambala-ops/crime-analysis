@@ -17,7 +17,7 @@ const STAGE_LABELS = {
   completed: 'Completed', failed: 'Failed',
 }
 
-/* Canonical CrimeLink fields offered for CSV column mapping (mirrors
+/* Canonical Crime Analysis fields offered for CSV column mapping (mirrors
    backend/app/services/dataset_import.py). */
 const MAPPING_GROUPS = [
   { label: 'Call records (CDR)', fields: [
@@ -77,7 +77,7 @@ function MappingEditor({ columns, mapping, onChange }) {
   return (
     <div className="mapping-editor">
       <div className="muted small">Original CSV values are always preserved — mapped
-        columns feed the CrimeLink extraction pipeline (auto-detected where possible).
+        columns feed the Crime Analysis extraction pipeline (auto-detected where possible).
       </div>
       {MAPPING_GROUPS.map((group) => (
         <div key={group.label} className="mapping-group">
@@ -365,7 +365,7 @@ export default function ImportData() {
           <h2>Dataset Importer</h2>
           <p className="muted">
             Import investigation datasets — PDF (incl. scanned/OCR), CSV, JSON, TXT —
-            and run them through the CrimeLink pipeline. Data is always treated as
+            and run them through the Crime Analysis pipeline. Data is always treated as
             evidence to be validated, never as automatically true.
           </p>
         </div>
@@ -557,7 +557,7 @@ export default function ImportData() {
                               <div className="mono">{d.filename}</div>
                               {d.mapping && Object.keys(d.mapping).length > 0 && (
                                 <div className="small muted">
-                                  {Object.keys(d.mapping).length} column(s) mapped to CrimeLink fields
+                                  {Object.keys(d.mapping).length} column(s) mapped to Crime Analysis fields
                                 </div>
                               )}
                               {d.error && <div className="import-error-line small">✕ {d.error}</div>}

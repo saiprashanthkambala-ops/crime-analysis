@@ -1,8 +1,8 @@
-# CrimeLink
+# Crime Analysis
 
 **AI-Powered Criminal Network Analysis & Investigation Platform** (SIH26189)
 
-CrimeLink transforms fragmented investigation records (FIRs, CDRs, financial
+Crime Analysis transforms fragmented investigation records (FIRs, CDRs, financial
 transactions, CCTV reports, cases) into structured entities, dynamic
 evidence-backed profiles, and candidate relationships — presented through an
 interactive network and timeline for investigator review.
@@ -22,7 +22,7 @@ never a probability of guilt.
 | --- | --- |
 | **Auth** | JWT login/logout, RBAC (`investigator`, `admin`), case-level access control |
 | **Ingestion** | PDF (text + OCR fallback via Tesseract), CSV (CDR), JSON (transactions, CCTV), TXT. Async background processing with stage tracking (validating → parsing → ocr → extracting → normalizing → resolving → analyzing → completed/failed) |
-| **Dataset importer** | Dedicated UI (`/import` or `/cases/:id/import`) for multi-file drag & drop import: per-file validation + pre-flight checks, CSV column mapping to canonical CrimeLink fields (auto-detect + manual), content-hash duplicate detection, import history with statistics and one-click retry. Files flow through the single ingestion pipeline above |
+| **Dataset importer** | Dedicated UI (`/import` or `/cases/:id/import`) for multi-file drag & drop import: per-file validation + pre-flight checks, CSV column mapping to canonical Crime Analysis fields (auto-detect + manual), content-hash duplicate detection, import history with statistics and one-click retry. Files flow through the single ingestion pipeline above |
 | **Extraction** | People, phones, vehicles, bank accounts, locations, dates, times, calls, transactions, events — all with source provenance |
 | **Normalization** | Phones, names, vehicles, accounts, dates, times — original value always preserved |
 | **Entity resolution** | Conservative same-person clustering via name similarity + shared identifiers, with persisted explainability (merged variants + signals + confidence) |
@@ -132,7 +132,7 @@ Supported formats: PDF (text layer first; Tesseract OCR fallback for scanned
 documents), CSV (auto-detected CDR / transaction / person-record shapes), JSON
 (arrays/objects of transaction, call, CCTV and event records), TXT.
 
-Column mapping: CrimeLink recognises canonical fields (caller/callee name+phone,
+Column mapping: Crime Analysis recognises canonical fields (caller/callee name+phone,
 sender/receiver name+account, amount, transaction ID, person name, phone, vehicle,
 account, location, date, time, timestamp) from many common header spellings
 (`phone`/`mobile`/`phone_number`/`contact_number` → the same concept) and lets the

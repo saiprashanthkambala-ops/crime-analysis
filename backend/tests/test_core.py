@@ -1,4 +1,4 @@
-"""Unit + integration tests for CrimeLink core logic."""
+"""Unit + integration tests for Crime Analysis core logic."""
 import pytest
 
 from app.services.normalization import (

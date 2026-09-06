@@ -1,5 +1,5 @@
 """Dataset import tests: validation, mapping, duplicates, provenance, RBAC,
-retry and end-to-end ingestion through the CrimeLink pipeline.
+retry and end-to-end ingestion through the Crime Analysis pipeline.
 """
 import io
 import json
@@ -372,7 +372,7 @@ def test_column_mapping_validation_rejects_unknown_columns(client, auth_headers)
     assert r.status_code == 400
     detail = r.json()["detail"]
     assert any("no such column" in e["error"] for e in detail["errors"])
-    assert any("Unknown CrimeLink field" in e["error"] for e in detail["errors"])
+    assert any("Unknown Crime Analysis field" in e["error"] for e in detail["errors"])
 
 
 # ---------------------------------------------------------------- provenance / RBAC

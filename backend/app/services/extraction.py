@@ -4,7 +4,7 @@ Two extraction paths are provided:
 
 * ``extract_structured`` — deterministic mapping of CSV rows / JSON records
   (CDR, transactions, FIR records) into entities, person mentions and events.
-  CSV columns can be mapped to canonical CrimeLink fields (see
+  CSV columns can be mapped to canonical Crime Analysis fields (see
   services/dataset_import.py); when no mapping is supplied the columns are
   auto-detected from the header.
 * ``extract_text`` — rule-based extraction from free text (PDF / TXT / OCR),
@@ -420,7 +420,7 @@ def extract_csv_rows(rows, filename, source_document_id, case_id, mapping=None):
         out_mentions.append(m)
 
     if not col_by_field:
-        warnings.append("No columns could be matched to known CrimeLink fields; no "
+        warnings.append("No columns could be matched to known Crime Analysis fields; no "
                         "records were extracted from this CSV. Use the column "
                         "mapping editor and re-import.")
     return {"entities": entities, "mentions": out_mentions, "events": events,

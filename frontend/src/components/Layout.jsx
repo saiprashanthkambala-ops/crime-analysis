@@ -18,7 +18,7 @@ export default function Layout() {
       <header className="topbar">
         <div className="brand">
           <NavLink to="/" className="brand-link">
-            <span className="brand-mark">⌖</span> CrimeLink
+            <span className="brand-mark">⌖</span> Crime Analysis
           </NavLink>
         </div>
         <form className="global-search" onSubmit={onSearch}>
