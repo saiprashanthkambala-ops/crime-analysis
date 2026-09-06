@@ -5,6 +5,7 @@ __pycache__/
 venv/
 *.egg-info/
 .pytest_cache/
+.crimelink_backend_installed
 
 # Node
 node_modules/
