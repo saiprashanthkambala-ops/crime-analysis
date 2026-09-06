@@ -44,6 +44,25 @@ export default function Profile() {
         <div className="stat-card"><div className="stat-value">{c.events}</div><div className="stat-label">Calls / Events</div></div>
       </div>
 
+      {profile.resolution && profile.resolution.merged && (
+        <Panel title="Identity Resolution">
+          <div className="resolution-box">
+            <div className="muted small">
+              Multiple source records were resolved into this person — not silently merged.
+            </div>
+            <div className="source-list" style={{ marginTop: 8 }}>
+              {(profile.resolution.variants || []).map((v) => (
+                <span key={v} className="source-chip">{v}</span>
+              ))}
+            </div>
+            <div className="small muted" style={{ marginTop: 8 }}>
+              Signals: {(profile.resolution.signals || []).join(', ') || 'name similarity'} ·
+              Confidence: {Math.round((profile.resolution.confidence || 0) * 100)}%
+            </div>
+          </div>
+        </Panel>
+      )}
+
       <div className="two-col">
         <Panel title="Identifiers">
           <IdList title="Phones" items={profile.phones} />

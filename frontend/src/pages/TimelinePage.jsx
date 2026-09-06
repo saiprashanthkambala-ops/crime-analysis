@@ -11,9 +11,20 @@ const TYPE_COLORS = {
 
 export default function TimelinePage() {
   const [items, setItems] = useState(null)
+  const [cases, setCases] = useState([])
   const [err, setErr] = useState('')
+  const [caseId, setCaseId] = useState('')
+  const [eventType, setEventType] = useState('')
 
-  useEffect(() => { api('/timeline').then(setItems).catch((e) => setErr(e.message)) }, [])
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (caseId) params.set('case_id', caseId)
+    if (eventType) params.set('event_type', eventType)
+    const qs = params.toString()
+    api(`/timeline${qs ? `?${qs}` : ''}`).then(setItems).catch((e) => setErr(e.message))
+  }, [caseId, eventType])
+
+  useEffect(() => { api('/cases').then(setCases).catch(() => {}) }, [])
 
   if (err) return <ErrorBox message={err} />
   if (!items) return <Spinner />
@@ -22,6 +33,19 @@ export default function TimelinePage() {
     <div className="page">
       <h2>Timeline</h2>
       <p className="muted">Chronological events using only known dates/times. Missing times are never invented.</p>
+      <div className="filter-row">
+        <select value={caseId} onChange={(e) => setCaseId(e.target.value)} className="select-inline">
+          <option value="">All cases</option>
+          {cases.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={eventType} onChange={(e) => setEventType(e.target.value)} className="select-inline">
+          <option value="">All event types</option>
+          <option value="CALL">CALL</option>
+          <option value="TRANSACTION">TRANSACTION</option>
+          <option value="LOCATION_OBSERVATION">LOCATION_OBSERVATION</option>
+          <option value="CASE_EVENT">CASE_EVENT</option>
+        </select>
+      </div>
       <Panel title={`${items.length} events`}>
         {items.length === 0 && <Empty message="No timeline events available." />}
         <div className="timeline">

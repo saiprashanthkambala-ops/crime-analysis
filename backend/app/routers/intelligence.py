@@ -10,7 +10,7 @@ from ..services.profile import build_profile
 from ..services.timeline import build_timeline
 from ..services.graph import build_graph
 
-router = APIRouter(tags=["intelligence"])
+router = APIRouter(prefix="/api", tags=["intelligence"])
 
 
 def _person_from_id(db, pid):
@@ -70,6 +70,34 @@ def get_person(person_id: str, user: User = Depends(get_current_user),
     return profile
 
 
+@router.get("/persons/{person_id}/resolution")
+def get_person_resolution(person_id: str, user: User = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    """Explain why source mentions were resolved into this person."""
+    person = _person_from_id(db, person_id)
+    if not person:
+        raise HTTPException(404, "Person not found")
+    # collect the source mentions (PERSON entities) attributed to this person
+    mentions = (
+        db.query(Entity)
+        .filter(Entity.entity_type == "PERSON",
+                Entity.normalized_value == person.name.lower().replace(" ", " "))
+        .all()
+    )
+    # fallback: derive variants from the stored resolution metadata
+    variants = (person.resolution or {}).get("variants", [])
+    if not variants and mentions:
+        variants = sorted({m.original_value for m in mentions})
+    return {
+        "person_id": person.id,
+        "name": person.name,
+        "merged": bool(person.resolution and person.resolution.get("merged")),
+        "variants": variants,
+        "signals": (person.resolution or {}).get("signals", []),
+        "confidence": (person.resolution or {}).get("confidence"),
+    }
+
+
 # ---------------------------------------------------------------- relationships
 def _rel_dict(db, r):
     pa = _person_from_id(db, r.person_a_id)
@@ -88,6 +116,7 @@ def _rel_dict(db, r):
         "person_b": {"id": r.person_b_id, "name": pb.name if pb else r.person_b_id},
         "score": r.score,
         "strength": r.strength,
+        "types": relationship_types(r.signals),
         "signals": r.signals,
         "decision": r.decision,
         "evidence": [
@@ -100,17 +129,53 @@ def _rel_dict(db, r):
         ],
         "dates": sorted({e.observed_date for e in evidence if e.observed_date}),
         "sources": sorted({e.source_reference for e in evidence if e.source_reference}),
+        "case_ids": sorted({e.case_id for e in evidence if e.case_id}),
     }
 
 
+SIGNAL_KEYS = {
+    "call": "calls", "transaction": "transactions", "location": "location_overlaps",
+    "shared_identifier": "shared_identifiers", "case": "case_overlaps",
+}
+
+
+def relationship_types(signals):
+    """Derive human-readable relationship types from the signal counts."""
+    signals = signals or {}
+    types = []
+    if signals.get("calls"):
+        types.append("call")
+    if signals.get("transactions"):
+        types.append("transaction")
+    if signals.get("location_overlaps"):
+        types.append("location")
+    if signals.get("shared_identifiers"):
+        types.append("shared_identifier")
+    if signals.get("case_overlaps"):
+        types.append("case")
+    return types
+
+
 @router.get("/relationships")
-def list_relationships(strength: str = None, case_id: str = None,
+def list_relationships(strength: str = None, signal: str = None, case_id: str = None,
                        user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    q = db.query(Relationship)
+    rels = db.query(Relationship).all()
+
+    # case filter: keep relationships with evidence in the requested case
+    if case_id:
+        case_evidence = db.query(Evidence).filter(Evidence.case_id == case_id).all()
+        case_pairs = {(e.person_a_id, e.person_b_id) for e in case_evidence}
+        rels = [r for r in rels
+                if (r.person_a_id, r.person_b_id) in case_pairs
+                or (r.person_b_id, r.person_a_id) in case_pairs]
+
+    result = [_rel_dict(db, r) for r in rels]
     if strength:
-        q = q.filter(Relationship.strength == strength.upper())
-    rels = q.all()
-    return [_rel_dict(db, r) for r in rels]
+        result = [r for r in result if r["strength"] == strength.upper()]
+    if signal and signal in SIGNAL_KEYS:
+        key = SIGNAL_KEYS[signal]
+        result = [r for r in result if (r["signals"] or {}).get(key)]
+    return result
 
 
 @router.get("/relationships/{rel_id}")
@@ -233,7 +298,8 @@ def feedback(rel_id: str, body: FeedbackBody, user: User = Depends(get_current_u
         raise HTTPException(404, "Relationship not found")
     r.decision = body.decision
     r.decided_by = user.id
-    r.decided_at = __import__("datetime").datetime.utcnow()
+    from datetime import datetime
+    r.decided_at = datetime.utcnow()
     from ..models import Feedback
     db.add(Feedback(relationship_id=rel_id, user_id=user.id, decision=body.decision,
                     note=body.note))

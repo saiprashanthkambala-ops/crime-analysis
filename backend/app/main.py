@@ -51,6 +51,10 @@ if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
 
 @app.get("/{full_path:path}", include_in_schema=False)
 def spa_fallback(full_path: str):
+    # Unknown API routes must 404 (JSON), never return the SPA.
+    if full_path == "api" or full_path.startswith("api/"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": "Not found"}, status_code=404)
     if FRONTEND_DIST.exists():
         candidate = FRONTEND_DIST / full_path
         if full_path and candidate.is_file():

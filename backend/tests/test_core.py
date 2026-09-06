@@ -124,37 +124,37 @@ def test_api_end_to_end():
     from app.main import app
 
     with TestClient(app) as client:  # context manager triggers startup (seeding)
-        r = client.post("/auth/login", json={"username": "investigator1", "password": "investor1"})
+        r = client.post("/api/auth/login", json={"username": "investigator1", "password": "investor1"})
         assert r.status_code == 200
         token = r.json()["access_token"]
         h = {"Authorization": f"Bearer {token}"}
 
         # unauthorized is rejected
-        assert client.get("/cases").status_code == 401
+        assert client.get("/api/cases").status_code == 401
 
         # core endpoints
-        assert client.get("/admin/stats", headers=h).status_code == 200
-        cases = client.get("/cases", headers=h).json()
+        assert client.get("/api/admin/stats", headers=h).status_code == 200
+        cases = client.get("/api/cases", headers=h).json()
         assert len(cases) >= 1
 
-        persons = client.get("/persons", headers=h).json()
+        persons = client.get("/api/persons", headers=h).json()
         assert any(p["name"] == "Ravi Kumar" for p in persons)
 
-        rels = client.get("/relationships", headers=h).json()
+        rels = client.get("/api/relationships", headers=h).json()
         assert any(r["strength"] == "STRONG" for r in rels)
 
         # search by phone
-        s = client.get("/search?q=9876543210", headers=h).json()
+        s = client.get("/api/search?q=9876543210", headers=h).json()
         assert s["entities"] or s["people"]
 
         # feedback
         rel_id = rels[0]["id"]
-        r = client.post(f"/relationships/{rel_id}/feedback", headers=h,
+        r = client.post(f"/api/relationships/{rel_id}/feedback", headers=h,
                         json={"decision": "relevant"})
         assert r.status_code == 200
 
         # audit (admin)
-        r = client.post("/auth/login", json={"username": "admin", "password": "admin123"})
+        r = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
         admin_tok = r.json()["access_token"]
-        audit = client.get("/audit", headers={"Authorization": f"Bearer {admin_tok}"}).json()
+        audit = client.get("/api/audit", headers={"Authorization": f"Bearer {admin_tok}"}).json()
         assert any(a["action"] == "feedback" for a in audit)

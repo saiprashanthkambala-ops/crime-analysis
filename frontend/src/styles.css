@@ -220,3 +220,15 @@ input[type="file"] { padding: 6px; }
 
 /* ---------------------------------------------------------------- quick */
 .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ---------------------------------------------------------------- filters */
+.select-inline {
+  width: auto; min-width: 140px; padding: 6px 10px; font-size: 13px;
+}
+.toggle-chip {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 5px 10px; border: 1px solid var(--border); border-radius: 20px;
+  font-size: 12px; color: var(--muted); text-transform: capitalize;
+}
+.toggle-chip input { width: auto; accent-color: var(--accent); }
+.resolution-box { background: var(--panel-2); border-radius: 8px; padding: 12px; }

@@ -8,6 +8,7 @@ export default function RelationshipDetail() {
   const [rel, setRel] = useState(null)
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
+  const [note, setNote] = useState('')
 
   const load = () => api(`/relationships/${relId}`).then(setRel).catch((e) => setErr(e.message))
   useEffect(() => { load() }, [relId])
@@ -16,8 +17,9 @@ export default function RelationshipDetail() {
     setSaving(true)
     try {
       await api(`/relationships/${relId}/feedback`, {
-        method: 'POST', body: JSON.stringify({ decision }),
+        method: 'POST', body: JSON.stringify({ decision, note }),
       })
+      setNote('')
       await load()
     } catch (e) { setErr(e.message) } finally { setSaving(false) }
   }
@@ -104,8 +106,15 @@ export default function RelationshipDetail() {
           <button className="btn btn-ok" disabled={saving} onClick={() => decide('relevant')}>✓ Relevant</button>
           <button className="btn btn-bad" disabled={saving} onClick={() => decide('incorrect')}>✕ Incorrect</button>
           <button className="btn btn-warn" disabled={saving} onClick={() => decide('needs_review')}>? Needs Review</button>
-          {rel.decision && <span className="muted">Current decision: <b>{rel.decision}</b></span>}
+          {rel.decision && <span className="muted">Current decision: <b>{rel.decision.replace('_', ' ')}</b></span>}
         </div>
+        <textarea
+          placeholder="Optional note for this decision…"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          style={{ marginBottom: 8 }}
+        />
         <div className="small muted">Feedback is stored for controlled evaluation — not unsupervised model change.</div>
       </Panel>
     </div>

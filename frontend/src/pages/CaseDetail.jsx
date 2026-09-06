@@ -14,6 +14,27 @@ export default function CaseDetail() {
   const load = () => api(`/cases/${caseId}`).then(setCaseData).catch((e) => setErr(e.message))
   useEffect(() => { load() }, [caseId])
 
+  const pollStatus = async (docId) => {
+    for (let i = 0; i < 60; i++) {
+      const st = await api(`/documents/${docId}/status`)
+      const stage = st.jobs?.[0]?.stage || st.status
+      setStatusMsg(`Processing ${st.filename}: ${stage}`)
+      if (st.status === 'completed') {
+        setStatusMsg(`Processed ${st.filename} — completed.`)
+        await load()
+        return
+      }
+      if (st.status === 'failed') {
+        setStatusMsg(`Processing failed: ${st.error || 'unknown error'}`)
+        setErr(st.error || 'Processing failed')
+        await load()
+        return
+      }
+      await new Promise((r) => setTimeout(r, 800))
+    }
+    setStatusMsg('Processing timed out.')
+  }
+
   const onUpload = async (e) => {
     e.preventDefault()
     const file = fileRef.current?.files?.[0]
@@ -22,8 +43,8 @@ export default function CaseDetail() {
     setStatusMsg('')
     try {
       const res = await uploadFile(caseId, file)
-      setStatusMsg(`Uploaded ${res.filename} — status: ${res.status}`)
-      await load()
+      setStatusMsg(`Uploaded ${res.filename} — queued for processing…`)
+      await pollStatus(res.id)
     } catch (err) { setErr(err.message) } finally { setUploading(false) }
   }
 

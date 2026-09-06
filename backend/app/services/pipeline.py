@@ -13,8 +13,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from ..models import Case, Document, Entity, Event, Evidence, Person, Relationship, ProcessingJob
-from ..config import settings
+from ..models import AuditLog, Case, Document, Entity, Event, Evidence, Person, Relationship, ProcessingJob
+from ..config import settings, DATA_DIR
 from .extraction import extract_text, extract_csv_rows, extract_json_records
 from .normalization import normalize_value, normalize_name
 from .resolution import resolve_mentions
@@ -155,21 +155,56 @@ def _persist_entities(db, bundle, document, case_id):
     db.commit()
 
 
+def _set_stage(db, document, job, stage):
+    document.status = stage
+    job.stage = stage
+    db.commit()
+
+
 def process_document(db: Session, document: Document, content: bytes):
-    job = ProcessingJob(document_id=document.id, status="processing", stage="parsing")
+    """Run the full pipeline for one document, advancing through PRD stages:
+    validating -> parsing|ocr_processing -> extracting -> normalizing ->
+    resolving -> analyzing -> completed|failed.
+    """
+    job = ProcessingJob(document_id=document.id, status="processing", stage="validating")
     db.add(job)
     db.commit()
     try:
-        document.status = "processing"
-        db.commit()
+        _set_stage(db, document, job, "validating")
+        ftype = detect_type(document.filename, content)
 
-        text, ftype, needs_ocr = extract_document_content(document.filename, content)
+        # -------- parse / OCR
+        needs_ocr = False
+        if ftype == PDF:
+            _set_stage(db, document, job, "parsing")
+            text = _extract_pdf_text(content)
+            if not text.strip():
+                _set_stage(db, document, job, "ocr_processing")
+                text, needs_ocr = _ocr_text(content)
+        elif ftype == CSV:
+            _set_stage(db, document, job, "parsing")
+            text = content.decode("utf-8", "ignore")
+        elif ftype == JSON:
+            _set_stage(db, document, job, "parsing")
+            text = content.decode("utf-8", "ignore")
+        else:
+            _set_stage(db, document, job, "parsing")
+            try:
+                text = content.decode("utf-8", "ignore")
+            except Exception:
+                text = content.decode("latin-1", "ignore")
         document.file_type = ftype
         document.source_text = text
+        if needs_ocr and not text.strip():
+            document.status = "failed"
+            document.error = "OCR produced no text (Tesseract unavailable?)"
+            job.status = "failed"
+            job.message = document.error
+            db.commit()
+            return
 
-        job.stage = "extracting"
-        db.commit()
-
+        # -------- extract
+        _set_stage(db, document, job, "extracting")
         if ftype == CSV:
             rows = list(csv.reader(io.StringIO(text)))
             bundle = extract_csv_rows(rows, document.filename, document.id, document.case_id)
@@ -180,6 +215,7 @@ def process_document(db: Session, document: Document, content: bytes):
                 document.status = "failed"
                 document.error = "Invalid JSON"
                 job.status = "failed"
+                job.message = document.error
                 db.commit()
                 return
             if isinstance(data, dict):
@@ -188,13 +224,17 @@ def process_document(db: Session, document: Document, content: bytes):
         else:
             bundle = extract_text(text, document.id, document.filename, document.case_id)
 
-        job.stage = "persisting"
-        db.commit()
+        # -------- normalize + persist
+        _set_stage(db, document, job, "normalizing")
         _persist_entities(db, bundle, document, document.case_id)
 
-        job.stage = "analyzing"
-        db.commit()
+        # -------- resolve (same-person clustering + profiles)
+        _set_stage(db, document, job, "resolving")
         recompute_case(db, document.case_id)
+
+        # -------- analyze (relationships + evidence strength)
+        _set_stage(db, document, job, "analyzing")
+        # relationships/evidence are produced inside recompute_case above
 
         document.status = "completed"
         document.processed_at = datetime.utcnow()
@@ -202,11 +242,50 @@ def process_document(db: Session, document: Document, content: bytes):
         job.stage = "completed"
         db.commit()
     except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        db.refresh(document)
         document.status = "failed"
         document.error = str(exc)
-        job.status = "failed"
-        job.message = str(exc)
+        if "job" in locals() and job is not None:
+            job.status = "failed"
+            job.message = str(exc)
         db.commit()
+
+
+UPLOAD_DIR = DATA_DIR / "uploads"
+
+
+def save_upload(document_id: str, content: bytes) -> str:
+    """Persist raw upload bytes to disk so background processing can read them."""
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    path = UPLOAD_DIR / f"{document_id}.bin"
+    path.write_bytes(content)
+    return str(path)
+
+
+def run_background(document_id: str):
+    """Process an uploaded document in its own session (called from BackgroundTasks)."""
+    from ..database import SessionLocal
+    db = SessionLocal()
+    try:
+        document = db.get(Document, document_id)
+        if not document:
+            return
+        path = UPLOAD_DIR / f"{document_id}.bin"
+        if not path.exists():
+            document.status = "failed"
+            document.error = "Uploaded file missing from storage"
+            db.commit()
+            return
+        content = path.read_bytes()
+        process_document(db, document, content)
+        # clean up raw upload
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    finally:
+        db.close()
 
 
 def recompute_case(db: Session, case_id: str):
@@ -235,6 +314,12 @@ def recompute_case(db: Session, case_id: str):
             db.add(person)
             existing[pid] = person
         person.name = c["name"]
+        person.resolution = {
+            "variants": sorted({m.get("name") for m in c["mentions"]}),
+            "signals": c["signals"],
+            "confidence": c["confidence"],
+            "merged": len(c["mentions"]) > 1,
+        }
         seen_ids.add(pid)
         persons.append({
             "id": pid,
@@ -247,6 +332,20 @@ def recompute_case(db: Session, case_id: str):
         alias_map[nv] = pid
         for m in c["mentions"]:
             alias_map[normalize_name(m.get("name", ""))] = pid
+        # record identity-resolution events (system-level) when variants merged.
+        # dedupe: keep one audit row per person, updated to the final state.
+        if len(c["mentions"]) > 1:
+            details = {"name": c["name"],
+                       "variants": sorted({m.get("name") for m in c["mentions"]}),
+                       "signals": c["signals"], "confidence": c["confidence"]}
+            audit_row = (db.query(AuditLog)
+                         .filter_by(action="identity_resolution", entity_type="person", entity_id=pid)
+                         .first())
+            if audit_row:
+                audit_row.details = details
+            else:
+                db.add(AuditLog(user_id=None, action="identity_resolution",
+                                entity_type="person", entity_id=pid, details=details))
     db.commit()
 
     # ---- clear + rebuild person<->entity links for this case

@@ -51,6 +51,8 @@ def resolve_mentions(mentions):
         )
         best = None
         best_score = 0.0
+        best_sim = 0.0
+        best_shared = set()
         for c in clusters:
             sim = name_similarity(m.get("name", ""), c["name"])
             shared = _shared(ids_m, c["all_identifiers"])
@@ -60,12 +62,14 @@ def resolve_mentions(mentions):
             if score > best_score:
                 best_score = score
                 best = c
+                best_sim = sim
+                best_shared = shared
         if best is not None and best_score >= 0.8:
             best["mentions"].append(m)
             best["all_identifiers"] += ids_m
-            if best_score == 0.95:
+            if best_shared:
                 best["signals"].add("shared identifier")
-            else:
+            if best_sim >= 0.8:
                 best["signals"].add("name similarity")
         else:
             clusters.append({

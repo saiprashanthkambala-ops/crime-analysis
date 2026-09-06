@@ -17,7 +17,7 @@ export async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
-  const res = await fetch(path, { ...options, headers })
+  const res = await fetch(`/api${path}`, { ...options, headers })
   if (res.status === 401) {
     clearToken()
     if (window.location.pathname !== '/login') window.location.href = '/login'
@@ -39,7 +39,7 @@ export async function uploadFile(caseId, file) {
   const form = new FormData()
   form.append('file', file)
   const token = getToken()
-  const res = await fetch(`/cases/${caseId}/upload`, {
+  const res = await fetch(`/api/cases/${caseId}/upload`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,

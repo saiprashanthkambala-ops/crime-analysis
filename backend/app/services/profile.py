@@ -64,6 +64,7 @@ def build_profile(db: Session, person_id: str):
     return {
         "person_id": person.id,
         "name": person.name,
+        "resolution": person.resolution or {},
         "identifiers": ids,
         "phones": ids["phone"],
         "vehicles": ids["vehicle"],

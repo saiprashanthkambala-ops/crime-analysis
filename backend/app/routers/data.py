@@ -1,15 +1,15 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Case, Document, ProcessingJob, User
 from ..security import get_current_user, ensure_case_access, log_audit
-from ..services.pipeline import process_document
+from ..services.pipeline import process_document, save_upload, run_background
 
-router = APIRouter(tags=["cases", "documents"])
+router = APIRouter(prefix="/api", tags=["cases", "documents"])
 
 
 # ---------------------------------------------------------------- cases
@@ -59,12 +59,13 @@ def get_case(case_id: str, user: User = Depends(get_current_user),
     case = db.get(Case, case_id)
     if not case:
         raise HTTPException(404, "Case not found")
+    log_audit(db, user.id, "case_access", "case", case_id)
     return c_to_dict(case)
 
 
 # ---------------------------------------------------------------- uploads
 @router.post("/cases/{case_id}/upload")
-def upload(case_id: str, file: UploadFile = File(...),
+def upload(case_id: str, background: BackgroundTasks, file: UploadFile = File(...),
            user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     ensure_case_access(db, user, case_id)
     content = file.file.read()
@@ -73,12 +74,16 @@ def upload(case_id: str, file: UploadFile = File(...),
     if not any(fname.lower().endswith(e) for e in allowed):
         raise HTTPException(400, "Unsupported file type")
     doc = Document(id="DOC-" + uuid.uuid4().hex[:8].upper(), case_id=case_id,
-                   filename=fname, uploaded_by=user.id)
+                   filename=fname, uploaded_by=user.id, status="uploaded")
     db.add(doc)
     db.commit()
+    job = ProcessingJob(document_id=doc.id, status="queued", stage="queued")
+    db.add(job)
+    db.commit()
+    save_upload(doc.id, content)
     log_audit(db, user.id, "upload", "document", doc.id, {"filename": fname})
-    process_document(db, doc, content)
-    db.refresh(doc)
+    # Process asynchronously; the UI polls /documents/{id}/status for progress.
+    background.add_task(run_background, doc.id)
     return {"id": doc.id, "filename": doc.filename, "status": doc.status, "error": doc.error}
 
 

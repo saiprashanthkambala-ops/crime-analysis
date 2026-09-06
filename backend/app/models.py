@@ -113,6 +113,7 @@ class Person(Base):
     __tablename__ = "persons"
     id = Column(String, primary_key=True)
     name = Column(String, index=True)
+    resolution = Column(JSON, default=dict)  # merged variants + signals + confidence
     created_at = Column(DateTime, default=datetime.utcnow)
 
     entities = relationship("Entity", secondary="person_entities", backref="persons")

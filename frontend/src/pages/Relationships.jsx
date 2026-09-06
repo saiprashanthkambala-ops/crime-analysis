@@ -4,20 +4,37 @@ import { api } from '../api'
 import { Spinner, ErrorBox, Panel, StrengthBadge } from '../components/ui'
 
 const FILTERS = ['', 'STRONG', 'MODERATE', 'WEAK', 'INSUFFICIENT EVIDENCE']
+const SIGNALS = [
+  { value: '', label: 'All types' },
+  { value: 'call', label: 'Calls' },
+  { value: 'transaction', label: 'Transactions' },
+  { value: 'location', label: 'Location' },
+  { value: 'shared_identifier', label: 'Shared identifier' },
+  { value: 'case', label: 'Shared case' },
+]
 
 export default function Relationships() {
   const [rels, setRels] = useState(null)
+  const [cases, setCases] = useState([])
   const [err, setErr] = useState('')
   const [filter, setFilter] = useState('')
+  const [signal, setSignal] = useState('')
+  const [caseId, setCaseId] = useState('')
 
   useEffect(() => {
     api('/relationships').then(setRels).catch((e) => setErr(e.message))
+    api('/cases').then(setCases).catch(() => {})
   }, [])
 
   if (err) return <ErrorBox message={err} />
   if (!rels) return <Spinner />
 
-  const shown = filter ? rels.filter((r) => r.strength === filter) : rels
+  const shown = rels.filter((r) => {
+    if (filter && r.strength !== filter) return false
+    if (signal && !(r.types || []).includes(signal)) return false
+    if (caseId && !(r.case_ids || []).includes(caseId)) return false
+    return true
+  })
 
   return (
     <div className="page">
@@ -36,6 +53,13 @@ export default function Relationships() {
             {f || 'All'}
           </button>
         ))}
+        <select value={signal} onChange={(e) => setSignal(e.target.value)} className="select-inline">
+          {SIGNALS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+        <select value={caseId} onChange={(e) => setCaseId(e.target.value)} className="select-inline">
+          <option value="">All cases</option>
+          {cases.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
       </div>
 
       <Panel title={`${shown.length} relationships`}>

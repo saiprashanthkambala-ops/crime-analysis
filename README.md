@@ -21,17 +21,18 @@ never a probability of guilt.
 | Area | Details |
 | --- | --- |
 | **Auth** | JWT login/logout, RBAC (`investigator`, `admin`), case-level access control |
-| **Ingestion** | PDF (text + OCR fallback via Tesseract), CSV (CDR), JSON (transactions, CCTV), TXT |
+| **Ingestion** | PDF (text + OCR fallback via Tesseract), CSV (CDR), JSON (transactions, CCTV), TXT. Async background processing with stage tracking (validating → parsing → ocr → extracting → normalizing → resolving → analyzing → completed/failed) |
 | **Extraction** | People, phones, vehicles, bank accounts, locations, dates, times, calls, transactions, events — all with source provenance |
 | **Normalization** | Phones, names, vehicles, accounts, dates, times — original value always preserved |
-| **Entity resolution** | Conservative same-person clustering via name similarity + shared identifiers |
+| **Entity resolution** | Conservative same-person clustering via name similarity + shared identifiers, with persisted explainability (merged variants + signals + confidence) |
 | **Profiles** | Dynamic — only evidence-supported attributes; missing data = *unavailable* |
 | **Relationships** | Modular multi-signal discovery (calls, transactions, location co-observation, shared identifiers) + evidence-strength scoring |
 | **Explainability** | Every relationship shows *why*, its sources, temporal context, and uncertainties |
 | **Evidence** | First-class records traceable to source document |
 | **Timeline** | Known dates/times only; missing time = *unavailable* (never invented) |
-| **Graph** | Interactive Cytoscape.js network (persons, phones, vehicles, accounts, locations, cases, events) |
-| **Feedback** | Relevant / Incorrect / Needs Review — stored for controlled evaluation |
+| **Graph** | Interactive Cytoscape.js network (persons, phones, vehicles, accounts, locations, cases, events) with node-type filtering |
+| **Search** | Global search by person / case / phone / vehicle / account / identifier |
+| **Feedback** | Relevant / Incorrect / Needs Review (with note) — stored for controlled evaluation |
 | **Audit** | Login, upload, search, views, feedback, admin actions |
 | **Demo data** | Synthetic "Operation Red River" investigation (FIR + CDR + transactions + CCTV) |
 
@@ -70,7 +71,7 @@ On first startup the database is created and seeded with the synthetic demo.
 ```bash
 cd frontend
 npm install
-npm run dev        # http://localhost:5173 (proxies /auth, /cases, ... to :8000)
+npm run dev        # http://localhost:5173 (proxies /api → :8000)
 ```
 
 ### 3. Production-style single server
@@ -81,6 +82,11 @@ cd ../backend && uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 FastAPI serves the built React app; open http://localhost:8000.
+
+> **Routing:** backend APIs are namespaced under `/api/*` (e.g. `/api/cases`,
+> `/api/persons`, `/api/relationships`), while React routes live at the root
+> (`/cases`, `/persons/:id`, …). Hard-refreshing any frontend route returns the
+> React app, never raw API JSON.
 
 ### Demo credentials
 
@@ -141,7 +147,7 @@ data/                  # (generated) synthetic source files
 source .venv/bin/activate
 pip install pytest
 cd backend
-python -m pytest -q
+python -m pytest -q        # 31 tests: unit + auth/RBAC + ingestion + provenance + E2E
 ```
 
 ---

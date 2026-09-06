@@ -6,7 +6,7 @@ from ..database import get_db
 from ..models import User
 from ..security import create_access_token, verify_password, get_current_user, log_audit
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 class LoginBody(BaseModel):
