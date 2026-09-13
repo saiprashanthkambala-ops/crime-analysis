@@ -111,6 +111,18 @@ FastAPI serves the built React app; open http://localhost:8000.
 | `MAX_UPLOAD_MB` | `25` | Maximum size of a single imported file |
 | `AUTO_SEED` | `1` | Seed demo data when the DB is empty |
 
+### Remote Neo4j (graph database)
+
+The backend can additionally connect to a **remote** Neo4j instance
+(SQLite remains the system of record). Copy `.env.example` to `.env`, fill in
+`NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD`, and check connectivity:
+
+```bash
+curl http://localhost:8000/api/health/neo4j   # runs a real `RETURN 1` query
+```
+
+Full setup, security notes and troubleshooting: **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**.
+
 ## Dataset import
 
 Import real investigation datasets through the importer UI (**Import Data** in the
