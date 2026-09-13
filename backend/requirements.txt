@@ -5,3 +5,5 @@ python-multipart>=0.0.9
 PyJWT>=2.8
 pypdf>=4.0
 reportlab>=4.0
+python-dotenv>=1.0
+neo4j>=5.28,<6.0
