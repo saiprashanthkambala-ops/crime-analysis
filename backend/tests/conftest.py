@@ -9,6 +9,16 @@ os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_tmp, 'test.db')}"
 os.environ["AUTO_SEED"] = "1"
 os.environ["JWT_SECRET"] = "test-secret-key-that-is-long-enough-32-bytes"
 
+# Keep the unit-test suite hermetic: never talk to a real Neo4j server. The
+# empty values disable the Neo4j connection at startup, and config.py never
+# lets .env values override variables that are already set. To also run the
+# live integration tests against your configured remote Neo4j, set
+# NEO4J_INTEGRATION_TEST=1 — see tests/test_neo4j.py and docs/ENVIRONMENT.md.
+if os.environ.get("NEO4J_INTEGRATION_TEST", "") != "1":
+    os.environ["NEO4J_URI"] = ""
+    os.environ["NEO4J_USERNAME"] = ""
+    os.environ["NEO4J_PASSWORD"] = ""
+
 
 @pytest.fixture()
 def client():
