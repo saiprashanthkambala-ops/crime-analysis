@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings, BASE_DIR
 from .database import Base, engine, ensure_column_migrations
-from .routers import auth, data, intelligence, admin
+from .routers import auth, data, intelligence, admin, graph
 from .seed import run_seed
 from .services.neo4j_service import close_driver, init_neo4j, neo4j_status
 from .neo4j.schema import initialize_schema
@@ -20,14 +20,11 @@ async def lifespan(app: FastAPI):
     ensure_column_migrations()
     if settings.AUTO_SEED:
         run_seed()
-    # Remote Neo4j is optional: existing SQLite functionality must remain
-    # available when the remote graph is not configured or temporarily down.
     init_neo4j()
     if neo4j_status()["status"] == "connected":
         try:
             initialize_schema()
         except Exception as exc:  # noqa: BLE001 - graph setup must not kill API
-            # Connectivity remains useful even if a schema operation fails.
             import logging
             logging.getLogger(__name__).warning("Neo4j schema initialization failed: %s", exc)
     yield
@@ -48,6 +45,7 @@ app.include_router(auth.router)
 app.include_router(data.router)
 app.include_router(intelligence.router)
 app.include_router(admin.router)
+app.include_router(graph.router)
 
 
 @app.get("/health")
