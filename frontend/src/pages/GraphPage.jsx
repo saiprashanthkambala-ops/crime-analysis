@@ -4,7 +4,7 @@ import { api } from '../api'
 import { Spinner, ErrorBox, Panel } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 
-const NODE_TYPES = ['person', 'phone', 'vehicle', 'account', 'location', 'case', 'event']
+const NODE_TYPES = ['person', 'phone', 'vehicle', 'account', 'location', 'case', 'event', 'evidence', 'document']
 
 export default function GraphPage() {
   const [graph, setGraph] = useState(null)
