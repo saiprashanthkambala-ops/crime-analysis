@@ -6,7 +6,7 @@ traceable graph projection used by later graph analysis and the AI agent.
 from sqlalchemy.orm import Session
 
 from ..models import Case, Document, Entity, Event, Evidence, Person, Relationship, person_entities
-from ..services.neo4j_service import get_driver
+from ..services.neo4j_service import Neo4jConnectionError, get_driver, run_read_query
 
 
 def _merge_node(tx, label, key, props):
