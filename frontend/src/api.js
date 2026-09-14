@@ -29,6 +29,81 @@ export async function api(path, options = {}) {
   return res.json()
 }
 
+export async function streamAnalysisChat(caseIds, message, onToken, options = {}) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    options.timeoutMs || 90000
+  )
+
+  try {
+    const token = getToken()
+    const res = await fetch('/api/analysis/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+      },
+      body: JSON.stringify({ case_ids: caseIds, message }),
+      signal: controller.signal,
+    })
+
+    if (res.status === 401) {
+      clearToken()
+      if (window.location.pathname !== '/login') window.location.href = '/login'
+      throw new Error('Unauthorized')
+    }
+
+    if (!res.ok) {
+      let detail = 'Chat request failed (' + res.status + ')'
+      try {
+        const body = await res.json()
+        if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+      } catch (_) {}
+      throw new Error(detail)
+    }
+
+    if (!res.body) throw new Error('Streaming is not supported by this browser.')
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let context = null
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const event = JSON.parse(line)
+        if (event.type === 'token') {
+          onToken(event.content || '')
+        } else if (event.type === 'done') {
+          context = event.context || null
+        } else if (event.type === 'error') {
+          throw new Error(event.detail || 'NVIDIA streaming request failed.')
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const event = JSON.parse(buffer)
+      if (event.type === 'token') onToken(event.content || '')
+      else if (event.type === 'done') context = event.context || null
+      else if (event.type === 'error') throw new Error(event.detail || 'NVIDIA streaming request failed.')
+    }
+
+    return { context }
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
 export class ApiError extends Error {
   constructor(detail, status, body) {
     const message = typeof detail === 'string' ? detail : (detail && (detail.message || detail.example)) || 'Import failed (' + status + ')'
