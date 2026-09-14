@@ -92,8 +92,7 @@ def test_centralities_execute_predefined_algorithms(monkeypatch):
         "betweenness_mode",
         "betweenness_sampling_size",
     }
-    joined = "
-".join(calls)
+    joined = "\\n".join(calls)
     assert "gds.degree.stream" in joined
     assert "gds.betweenness.stream" in joined
     assert "gds.closeness.stream" in joined
