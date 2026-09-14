@@ -233,7 +233,7 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
             for token in stream_chat(messages):
                 yield json.dumps({"type": "token", "content": token}, ensure_ascii=False) + "\n"
             log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
-            yield json.dumps({"type": "done", "context": context}, default=str) + "\n"
+            yield json.dumps({"type": "done", "context": context, "tool": tool_result.get("tool"), "tool_status": tool_result.get("status")}, default=str) + "\n"
         except NVIDIAClientError as exc:
             yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
         except Exception:
