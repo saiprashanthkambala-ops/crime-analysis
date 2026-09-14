@@ -535,9 +535,11 @@ export default function Analysis() {
         </div>
       </Panel>
 
-      <Panel title="Generated Case Analysis">
+        <Panel title="Generated Case Analysis" className="glass-panel analysis-summary-panel">
           {analysis ? (
-            <MarkdownMessage text={analysis} />
+            <div className="analysis-summary-content">
+              <MarkdownMessage text={analysis} />
+            </div>
           ) : (
             <div className="empty muted">
               Select one or more cases and generate an analysis.
@@ -545,7 +547,7 @@ export default function Analysis() {
           )}
         </Panel>
 
-        <Panel title="Investigation Chat">
+        <Panel title="Investigation Chat" className="glass-panel chat-panel">
           <div className="chat-shell">
             <div className="chat-messages">
               {messages.length === 0 && (
@@ -567,39 +569,60 @@ export default function Analysis() {
                   </div>
                   <div className="chat-content">{m.role === 'assistant' ? <MarkdownMessage text={m.content} /> : m.content}</div>
                   {m.role === 'assistant' && agentTools[i] && (
-                    <div className="muted small">Analysis tool: {agentTools[i]}</div>
+                    <div className="chat-tool-tag">Analysis tool: {agentTools[i]}</div>
                   )}
                 </div>
               ))}
 
               {chatting && (
-                <div className="chat-message chat-assistant">
+                <div className="chat-message chat-assistant chat-thinking">
                   <div className="chat-role">Nemotron</div>
-                  <div className="chat-content muted">Thinking…</div>
+                  <div className="chat-content muted">
+                    <span className="thinking-dot"></span> Thinking…
+                  </div>
                 </div>
               )}
             </div>
 
             <form className="chat-form" onSubmit={sendMessage}>
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Ask a question about the selected case(s)…"
-                rows={3}
-                disabled={!selected.length || chatting}
-              />
+              <div className="chat-input-wrapper">
+                <input
+                  type="text"
+                  className="chat-input"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      if (message.trim() && selected.length && !chatting && nvidiaReady?.configured !== false) {
+                        sendMessage(e)
+                      }
+                    }
+                  }}
+                  placeholder="Ask a question about the selected case(s)… (Press Enter to send)"
+                  disabled={!selected.length || chatting}
+                  autoComplete="off"
+                />
 
-              <button
-                className="btn btn-primary"
-                disabled={
-                  !selected.length ||
-                  chatting ||
-                  !message.trim() ||
-                  nvidiaReady?.configured === false
-                }
-              >
-                Send
-              </button>
+                <button
+                  type="submit"
+                  className="chat-send-btn"
+                  disabled={
+                    !selected.length ||
+                    chatting ||
+                    !message.trim() ||
+                    nvidiaReady?.configured === false
+                  }
+                  title="Send message (Enter)"
+                  aria-label="Send message"
+                >
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  </svg>
+                  <span>Send</span>
+                </button>
+              </div>
             </form>
           </div>
         </Panel>

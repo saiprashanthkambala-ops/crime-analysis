@@ -73,9 +73,9 @@ export function StatCard({ label, value, hint }) {
   )
 }
 
-export function Panel({ title, actions, children }) {
+export function Panel({ title, actions, children, className = '' }) {
   return (
-    <div className="panel">
+    <div className={`panel ${className}`.trim()}>
       <div className="panel-head">
         <h3>{title}</h3>
         {actions && <div className="panel-actions">{actions}</div>}
