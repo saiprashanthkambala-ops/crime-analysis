@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api } from '../api'
+import { api, streamAnalysisChat } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 
@@ -129,42 +129,44 @@ export default function Analysis() {
 
     setMessage('')
     setErr('')
+    const messageIndex = messages.length
     setMessages((prev) => [
       ...prev,
       { role: 'investigator', content: text },
+      { role: 'assistant', content: '' },
     ])
     setChatting(true)
 
     try {
-      const data = await withTimeout('/analysis/chat', {
-        method: 'POST',
-        body: JSON.stringify({
-          message: text,
-          case_ids: selected,
-        }),
-      })
-
-      setContext(data.context || null)
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.answer || 'No answer returned.',
+      const data = await streamAnalysisChat(
+        selected,
+        text,
+        (token) => {
+          setMessages((prev) =>
+            prev.map((m, i) =>
+              i === messageIndex + 1
+                ? { ...m, content: (m.content || '') + token }
+                : m
+            )
+          )
         },
-      ])
+        { timeoutMs: 90000 }
+      )
 
+      if (data.context) setContext(data.context)
       void refreshGraph()
     } catch (e) {
-      const detail =
-        e.name === 'AbortError'
-          ? 'Chat timed out after 50 seconds. Check NVIDIA_API_KEY and the backend server log.'
-          : e.message
-
+      const detail = e.name === 'AbortError'
+        ? 'Chat timed out after 90 seconds. Check NVIDIA_API_KEY, NVIDIA connectivity, and the backend log.'
+        : e.message
       setErr(detail)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'Request failed: ' + detail },
-      ])
+      setMessages((prev) =>
+        prev.map((m, i) =>
+          i === messageIndex + 1
+            ? { ...m, content: 'Request failed: ' + detail }
+            : m
+        )
+      )
     } finally {
       setChatting(false)
     }
