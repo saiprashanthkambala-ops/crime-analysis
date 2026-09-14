@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { ThemeToggle } from './ui'
 import { api } from '../api'
+import appLogo from '../profil icon'
 
 export default function Layout() {
   const { user, logout } = useAuth()
@@ -18,7 +20,8 @@ export default function Layout() {
       <header className="topbar">
         <div className="brand">
           <NavLink to="/" className="brand-link">
-            <span className="brand-mark">⌖</span> Crime Analysis
+            <img src={appLogo} alt="Crime Analysis Logo" className="brand-logo" />
+            <span className="brand-text">Crime Analysis</span>
           </NavLink>
         </div>
         <form className="global-search" onSubmit={onSearch}>
@@ -39,7 +42,11 @@ export default function Layout() {
           {user?.role === 'admin' && <NavLink to="/admin">Admin</NavLink>}
         </nav>
         <div className="user-chip">
-          <span className="muted">{user?.full_name || user?.username}</span>
+          <ThemeToggle />
+          <div className="user-profile-badge">
+            <img src={appLogo} alt="User Avatar" className="user-avatar-mini" />
+            <span className="user-name-badge">{user?.full_name || user?.username}</span>
+          </div>
           <button className="btn btn-ghost" onClick={() => { logout(); navigate('/login') }}>
             Logout
           </button>

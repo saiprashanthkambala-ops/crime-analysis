@@ -118,7 +118,8 @@ The backend can additionally connect to a **remote** Neo4j instance
 `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD`, and check connectivity:
 
 ```bash
-curl http://localhost:8000/api/health/neo4j   # runs a real `RETURN 1` query
+curl http://localhost:8000/api/neo4j/status     # returns {"connected": true/false, ...}
+curl http://localhost:8000/api/health/neo4j    # runs a real `RETURN 1` query (503 if down)
 ```
 
 Full setup, security notes and troubleshooting: **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**.

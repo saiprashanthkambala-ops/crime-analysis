@@ -55,7 +55,7 @@ def health():
 
 @app.get("/api/health/neo4j")
 def neo4j_health():
-    """Dedicated Neo4j diagnostic.
+    """Dedicated Neo4j diagnostic probe.
 
     Executes a real ``RETURN 1`` Cypher query against the remote database and
     returns 503 when Neo4j is configured but unreachable. The response never
@@ -64,6 +64,19 @@ def neo4j_health():
     status = neo4j_status()
     http_status = 503 if status["status"] == "unavailable" else 200
     return JSONResponse(status_code=http_status, content=status)
+
+
+@app.get("/api/neo4j/status")
+@app.get("/api/neo4j/connected")
+def neo4j_status_endpoint():
+    """Endpoint to check whether Neo4j is connected or not.
+
+    Always returns HTTP 200 with the connection status and a boolean ``connected`` flag:
+    - Connected: ``{"connected": true, "status": "connected", "latency_ms": ...}``
+    - Unreachable: ``{"connected": false, "status": "unavailable", "reason": ..., "detail": ...}``
+    - Not configured: ``{"connected": false, "status": "not_configured", "detail": ...}``
+    """
+    return JSONResponse(status_code=200, content=neo4j_status())
 
 
 # ---------------------------------------------------------------- static SPA

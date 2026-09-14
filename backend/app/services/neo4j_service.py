@@ -22,6 +22,12 @@ import threading
 import time
 from typing import Any, Optional
 
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
 from neo4j import Driver, GraphDatabase
 from neo4j.exceptions import (
     AuthError,
@@ -301,6 +307,7 @@ def neo4j_status() -> dict[str, Any]:
     """Snapshot of Neo4j connectivity, safe to return from an API endpoint."""
     if not is_configured():
         return {
+            "connected": False,
             "status": "not_configured",
             "detail": (
                 "Neo4j is not configured. Set NEO4J_URI, NEO4J_USERNAME and "
@@ -310,5 +317,14 @@ def neo4j_status() -> dict[str, Any]:
     try:
         info = verify_connectivity()
     except Neo4jConnectionError as exc:
-        return {"status": "unavailable", "reason": exc.reason, "detail": str(exc)}
-    return {"status": "connected", "latency_ms": info["latency_ms"]}
+        return {
+            "connected": False,
+            "status": "unavailable",
+            "reason": exc.reason,
+            "detail": str(exc),
+        }
+    return {
+        "connected": True,
+        "status": "connected",
+        "latency_ms": info["latency_ms"],
+    }

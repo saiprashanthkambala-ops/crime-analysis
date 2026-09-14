@@ -147,20 +147,23 @@ later phase, the example file is updated — never the real values.
 Start the backend, then:
 
 ```bash
+# Check whether Neo4j is connected or not (returns 200 with boolean `connected`)
+curl http://localhost:8000/api/neo4j/status
+
+# Dedicated Neo4j diagnostic probe — runs a real `RETURN 1` Cypher query (503 when down)
+curl http://localhost:8000/api/health/neo4j
+
 # Basic app health — stays 200/"healthy" even when Neo4j is down
 curl http://localhost:8000/health
-
-# Dedicated Neo4j diagnostic — runs a real `RETURN 1` Cypher query
-curl http://localhost:8000/api/health/neo4j
 ```
 
 Responses:
 
-| Neo4j state | `/health` | `/api/health/neo4j` |
-| --- | --- | --- |
-| Connected | `200 {"status": "healthy", "neo4j": {"status": "connected", "latency_ms": ...}}` | `200 {"status": "connected", "latency_ms": ...}` |
-| Not configured | `200 {..., "neo4j": {"status": "not_configured", ...}}` | `200 {"status": "not_configured", ...}` |
-| Configured but unreachable | `200 {..., "neo4j": {"status": "unavailable", ...}}` | `503 {"status": "unavailable", "reason": ..., "detail": ...}` |
+| Neo4j state | `/api/neo4j/status` | `/api/health/neo4j` | `/health` |
+| --- | --- | --- | --- |
+| Connected | `200 {"connected": true, "status": "connected", "latency_ms": ...}` | `200 {"connected": true, "status": "connected", "latency_ms": ...}` | `200 {"status": "healthy", "neo4j": {"connected": true, ...}}` |
+| Not configured | `200 {"connected": false, "status": "not_configured", ...}` | `200 {"connected": false, "status": "not_configured", ...}` | `200 {..., "neo4j": {"connected": false, ...}}` |
+| Configured but unreachable | `200 {"connected": false, "status": "unavailable", "reason": ..., "detail": ...}` | `503 {"connected": false, "status": "unavailable", "reason": ..., "detail": ...}` | `200 {..., "neo4j": {"connected": false, ...}}` |
 
 The diagnostic **never** returns the password, username or connection URI.
 

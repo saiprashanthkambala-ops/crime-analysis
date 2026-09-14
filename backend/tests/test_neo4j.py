@@ -310,6 +310,7 @@ def test_health_endpoint_stays_healthy_and_reports_neo4j(client):
     body = r.json()
     assert body["status"] == "healthy"
     assert body["neo4j"]["status"] == "not_configured"  # hermetic unit-test env
+    assert body["neo4j"]["connected"] is False
 
 
 def test_neo4j_diagnostic_endpoint_when_not_configured(client):
@@ -317,6 +318,7 @@ def test_neo4j_diagnostic_endpoint_when_not_configured(client):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "not_configured"
+    assert body["connected"] is False
     assert "NEO4J_URI" in body["detail"]
 
 
@@ -327,6 +329,7 @@ def test_neo4j_diagnostic_endpoint_when_connected(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "connected"
+    assert body["connected"] is True
     assert isinstance(body["latency_ms"], (int, float))
 
 
@@ -342,6 +345,7 @@ def test_neo4j_diagnostic_endpoint_masks_credentials(client, monkeypatch):
     assert r.status_code == 503
     body = r.json()
     assert body["status"] == "unavailable"
+    assert body["connected"] is False
     assert body["reason"] == "auth_error"
     assert secret not in r.text
 
@@ -349,12 +353,61 @@ def test_neo4j_diagnostic_endpoint_masks_credentials(client, monkeypatch):
     assert health.status_code == 200
     assert health.json()["status"] == "healthy"
     assert health.json()["neo4j"]["status"] == "unavailable"
+    assert health.json()["neo4j"]["connected"] is False
     assert secret not in health.text
+
+
+def test_neo4j_status_endpoint_when_not_configured(client):
+    """Dedicated status endpoint returns 200 with connected=False when unconfigured."""
+    r = client.get("/api/neo4j/status")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["connected"] is False
+    assert body["status"] == "not_configured"
+    assert "NEO4J_URI" in body["detail"]
+
+
+def test_neo4j_status_endpoint_when_connected(client, monkeypatch):
+    """Dedicated status endpoint returns 200 with connected=True when database is reachable."""
+    configure_neo4j(monkeypatch)
+    monkeypatch.setattr(neo4j_service, "_driver", FakeDriver(rows=[{"ok": 1}]))
+    r = client.get("/api/neo4j/status")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["connected"] is True
+    assert body["status"] == "connected"
+    assert isinstance(body["latency_ms"], (int, float))
+
+    # Also test alias
+    alias = client.get("/api/neo4j/connected")
+    assert alias.status_code == 200
+    assert alias.json()["connected"] is True
+
+
+def test_neo4j_status_endpoint_when_unavailable_returns_200_with_connected_false(
+    client, monkeypatch
+):
+    """Unlike the /api/health/neo4j probe which returns 503, /api/neo4j/status returns
+    HTTP 200 with connected=False and masked reason/detail so callers easily inspect the state."""
+    secret = "super-secret-password-never-log-me"
+    configure_neo4j(monkeypatch, password=secret)
+    error = AuthError(f"authentication failed, password was '{secret}'")
+    monkeypatch.setattr(neo4j_service, "_driver", FakeDriver(error=error))
+
+    r = client.get("/api/neo4j/status")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["connected"] is False
+    assert body["status"] == "unavailable"
+    assert body["reason"] == "auth_error"
+    assert secret not in r.text
 
 
 def test_neo4j_endpoints_are_not_blocked_by_auth(client):
     """Diagnostics are unauthenticated by design (ops probes), like /health."""
     assert client.get("/api/health/neo4j").status_code == 200
+    assert client.get("/api/neo4j/status").status_code == 200
+    assert client.get("/api/neo4j/connected").status_code == 200
 
 
 # ------------------------------------------------- live integration tests

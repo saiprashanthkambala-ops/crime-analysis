@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { Spinner, ErrorBox, StatCard, Panel, StrengthBadge } from '../components/ui'
+import appLogo from '../profil icon'
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
@@ -18,9 +19,45 @@ export default function Dashboard() {
   if (!stats || !rels) return <Spinner label="Loading dashboard…" />
 
   return (
-    <div className="page">
-      <h2>Dashboard</h2>
-      <p className="muted">Evidence-backed investigation overview — AI proposes, evidence validates, investigator decides.</p>
+    <div className="page dashboard-page">
+      <div className="dashboard-hero">
+        <div className="dashboard-hero-visual">
+          <div className="dashboard-hero-img-wrapper">
+            <img src={appLogo} alt="Crime Analysis Investigation Suite" className="dashboard-hero-img" />
+            <div className="hero-badge-live">
+              <span className="live-dot"></span> LIVE INTEL
+            </div>
+          </div>
+        </div>
+        <div className="dashboard-hero-content">
+          <div className="hero-tag">INTELLIGENCE PLATFORM · MULTI-SOURCE CORROBORATION</div>
+          <h1 className="hero-title">Criminal Network & Relationship Intelligence</h1>
+          <p className="hero-description">
+            Evidence-backed investigation overview — AI detects entities and suggests hidden links, multi-source records corroborate claims, and investigators verify critical findings.
+          </p>
+          <div className="hero-meta-strip">
+            <div className="hero-meta-item">
+              <span className="meta-label">Active Cases</span>
+              <span className="meta-val">{stats.cases}</span>
+            </div>
+            <div className="hero-meta-divider"></div>
+            <div className="hero-meta-item">
+              <span className="meta-label">Total Entities Monitored</span>
+              <span className="meta-val">{(stats.persons || 0) + (stats.entities || 0)}</span>
+            </div>
+            <div className="hero-meta-divider"></div>
+            <div className="hero-meta-item">
+              <span className="meta-label">Validated Relationships</span>
+              <span className="meta-val">{stats.relationships}</span>
+            </div>
+            <div className="hero-meta-divider"></div>
+            <div className="hero-meta-item">
+              <span className="meta-label">Evidence Vault</span>
+              <span className="meta-val">{stats.evidence} records</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="stat-grid">
         <StatCard label="Active Cases" value={stats.cases} />

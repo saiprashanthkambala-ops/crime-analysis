@@ -90,7 +90,7 @@ def install_backend(reinstall):
         print("  ! backend/requirements.txt not found — skipping backend install")
         return
     marker = VENV / ".crime_analysis_backend_installed"
-    if not reinstall and marker.exists():
+    if not reinstall and marker.exists() and marker.stat().st_mtime >= REQUIREMENTS.stat().st_mtime:
         return
     step("Installing backend dependencies (pip)")
     run([str(venv_python()), "-m", "pip", "install", "--upgrade", "pip"])

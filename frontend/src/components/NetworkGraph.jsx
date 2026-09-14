@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import cytoscape from 'cytoscape'
+import { useTheme } from '../theme'
 
 const NODE_STYLE = {
   person: { color: '#22d3ee', shape: 'ellipse' },
@@ -14,6 +15,8 @@ const NODE_STYLE = {
 export default function NetworkGraph({ data, onSelectNode }) {
   const ref = useRef(null)
   const cyRef = useRef(null)
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
 
   useEffect(() => {
     if (!ref.current || !data) return
@@ -31,12 +34,12 @@ export default function NetworkGraph({ data, onSelectNode }) {
         {
           selector: 'node',
           style: {
-            'background-color': '#334155',
-            'border-color': '#475569',
+            'background-color': isLight ? '#cbd5e1' : '#334155',
+            'border-color': isLight ? '#94a3b8' : '#475569',
             'border-width': 1,
             label: 'data(label)',
             'font-size': 10,
-            color: '#cbd5e1',
+            color: isLight ? '#0f172a' : '#cbd5e1',
             'text-valign': 'bottom',
             'text-margin-y': 4,
             width: 26,
@@ -104,7 +107,7 @@ export default function NetworkGraph({ data, onSelectNode }) {
 
     cyRef.current = cy
     return () => { if (cyRef.current) { cyRef.current.destroy(); cyRef.current = null } }
-  }, [data])
+  }, [data, theme])
 
   return (
     <div className="graph-container">
