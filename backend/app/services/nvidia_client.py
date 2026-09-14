@@ -2,7 +2,7 @@
 
 from typing import Any, Iterator
 
-from openai import APIConnectionError, APITimeoutError, OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from ..config import settings
 
 
@@ -25,6 +25,12 @@ def _client() -> OpenAI:
     )
 
 
+def _provider_error(prefix: str, exc: APIStatusError) -> NVIDIAClientError:
+    status = getattr(exc, "status_code", None)
+    suffix = f" (HTTP {status})" if status else ""
+    return NVIDIAClientError(f"{prefix}{suffix}. Check the NVIDIA API key, model name, quota, or endpoint.")
+
+
 def chat(messages: list[dict[str, str]]) -> Any:
     """Make one bounded, non-streaming NVIDIA chat request."""
     try:
@@ -34,18 +40,18 @@ def chat(messages: list[dict[str, str]]) -> Any:
             temperature=settings.NVIDIA_TEMPERATURE,
             top_p=settings.NVIDIA_TOP_P,
             max_tokens=settings.NVIDIA_MAX_TOKENS,
-            extra_body={
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
     except APITimeoutError as exc:
         raise NVIDIAClientError(
-            "NVIDIA request timed out. Check NVIDIA_API_KEY, network access, and the NVIDIA endpoint."
+            "NVIDIA request timed out. The provider did not return within the configured timeout."
         ) from exc
     except APIConnectionError as exc:
         raise NVIDIAClientError(
             "Could not connect to NVIDIA. Check internet access and NVIDIA_BASE_URL."
         ) from exc
+    except APIStatusError as exc:
+        raise _provider_error("NVIDIA rejected the request", exc) from exc
 
 
 def stream_chat(messages: list[dict[str, str]]) -> Iterator[str]:
@@ -57,9 +63,7 @@ def stream_chat(messages: list[dict[str, str]]) -> Iterator[str]:
             temperature=settings.NVIDIA_TEMPERATURE,
             top_p=settings.NVIDIA_TOP_P,
             max_tokens=settings.NVIDIA_MAX_TOKENS,
-            extra_body={
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             stream=True,
         )
         for chunk in stream:
@@ -71,9 +75,11 @@ def stream_chat(messages: list[dict[str, str]]) -> Iterator[str]:
                 yield text
     except APITimeoutError as exc:
         raise NVIDIAClientError(
-            "NVIDIA streaming request timed out. Check NVIDIA_API_KEY, network access, and the NVIDIA endpoint."
+            "NVIDIA streaming request timed out. The provider did not return within the configured timeout."
         ) from exc
     except APIConnectionError as exc:
         raise NVIDIAClientError(
             "Could not connect to NVIDIA while streaming. Check internet access and NVIDIA_BASE_URL."
         ) from exc
+    except APIStatusError as exc:
+        raise _provider_error("NVIDIA rejected the streaming request", exc) from exc
