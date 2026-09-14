@@ -226,3 +226,32 @@ database can never hang the health endpoints.
   error text is scrubbed of credentials before it is logged.
 - Real environment variables beat `.env` values — deployment platforms can
   inject secrets without touching files.
+
+
+## NVIDIA Nemotron Analysis Chat
+
+The Analysis workspace uses NVIDIA's OpenAI-compatible Chat Completions endpoint from the FastAPI backend.
+
+Set these variables in the local .env file:
+
+    NVIDIA_API_KEY=your_nvidia_api_key
+    NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+    NVIDIA_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b
+
+Optional model controls:
+
+    NVIDIA_TEMPERATURE=1
+    NVIDIA_TOP_P=0.95
+    NVIDIA_MAX_TOKENS=16384
+    NVIDIA_ENABLE_THINKING=1
+    NVIDIA_REASONING_BUDGET=16384
+
+NVIDIA_API_KEY is backend-only. It must never be exposed to the React application, committed to Git, or stored in the SQL/Neo4j databases.
+
+The Analysis page sends only authorized case IDs to the backend. The backend assembles the selected cases' metadata, entity values, existing relationships, evidence, and the Neo4j graph context before calling Nemotron.
+
+Official NVIDIA resources used for this integration:
+- https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b
+- https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-5-lightning-30b-a3b-infer
+- https://docs.api.nvidia.com/nim/re/reference/llm-apis
+- https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/modelcard

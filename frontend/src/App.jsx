@@ -13,6 +13,7 @@ import RelationshipDetail from './pages/RelationshipDetail'
 import EvidencePage from './pages/EvidencePage'
 import TimelinePage from './pages/TimelinePage'
 import GraphPage from './pages/GraphPage'
+import Analysis from './pages/Analysis'
 import AdminPage from './pages/AdminPage'
 
 function RequireAuth({ children }) {
@@ -26,13 +27,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route
-        element={
-          <RequireAuth>
-            <Layout />
-          </RequireAuth>
-        }
-      >
+      <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/cases" element={<Cases />} />
         <Route path="/cases/:caseId" element={<CaseDetail />} />
@@ -45,6 +40,7 @@ export default function App() {
         <Route path="/evidence" element={<EvidencePage />} />
         <Route path="/timeline" element={<TimelinePage />} />
         <Route path="/graph" element={<GraphPage />} />
+        <Route path="/analysis" element={<Analysis />} />
         <Route path="/admin" element={<AdminPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

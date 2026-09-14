@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { ThemeToggle } from './ui'
-import { api } from '../api'
 import appLogo from '../profil icon'
 
 export default function Layout() {
@@ -12,7 +11,7 @@ export default function Layout() {
 
   const onSearch = (e) => {
     e.preventDefault()
-    if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`)
+    if (query.trim()) navigate('/search?q=' + encodeURIComponent(query.trim()))
   }
 
   return (
@@ -25,16 +24,13 @@ export default function Layout() {
           </NavLink>
         </div>
         <form className="global-search" onSubmit={onSearch}>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search person / case / phone / identifier…"
-          />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search person / case / phone / identifier…" />
         </form>
         <nav className="topnav">
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/cases">Cases</NavLink>
           <NavLink to="/import">Import Data</NavLink>
+          <NavLink to="/analysis">Analysis</NavLink>
           <NavLink to="/relationships">Connections</NavLink>
           <NavLink to="/timeline">Timeline</NavLink>
           <NavLink to="/graph">Network</NavLink>
@@ -47,14 +43,10 @@ export default function Layout() {
             <img src={appLogo} alt="User Avatar" className="user-avatar-mini" />
             <span className="user-name-badge">{user?.full_name || user?.username}</span>
           </div>
-          <button className="btn btn-ghost" onClick={() => { logout(); navigate('/login') }}>
-            Logout
-          </button>
+          <button className="btn btn-ghost" onClick={() => { logout(); navigate('/login') }}>Logout</button>
         </div>
       </header>
-      <main className="content">
-        <Outlet />
-      </main>
+      <main className="content"><Outlet /></main>
     </div>
   )
 }
