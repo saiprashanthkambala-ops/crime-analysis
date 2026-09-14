@@ -1,5 +1,7 @@
 """Case-scoped analysis context built from SQL; Neo4j graph loading is separate."""
 
+import json
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -48,6 +50,7 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
         )
 
     people = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+
     entity_rows = [
         {
             "id": e.id,
@@ -63,21 +66,24 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
         }
         for e in entities[:150]
     ]
+
     people_rows = [{"id": p.id, "name": p.name} for p in people[:100]]
 
     relation_rows = []
     for r in sorted(relationships, key=lambda x: (x.score or 0), reverse=True)[:75]:
         pa = db.get(Person, r.person_a_id)
         pb = db.get(Person, r.person_b_id)
-        relation_rows.append({
-            "id": r.id,
-            "person_a": {"id": r.person_a_id, "name": pa.name if pa else r.person_a_id},
-            "person_b": {"id": r.person_b_id, "name": pb.name if pb else r.person_b_id},
-            "score": r.score,
-            "strength": r.strength,
-            "signals": r.signals or {},
-            "decision": r.decision,
-        })
+        relation_rows.append(
+            {
+                "id": r.id,
+                "person_a": {"id": r.person_a_id, "name": pa.name if pa else r.person_a_id},
+                "person_b": {"id": r.person_b_id, "name": pb.name if pb else r.person_b_id},
+                "score": r.score,
+                "strength": r.strength,
+                "signals": r.signals or {},
+                "decision": r.decision,
+            }
+        )
 
     evidence_rows = [
         {
@@ -90,7 +96,6 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
             "date": e.observed_date,
             "time": e.observed_time,
             "confidence": e.confidence,
-            "details": e.details or {},
         }
         for e in evidence[:150]
     ]
@@ -116,9 +121,21 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
     }
 
 
-def build_llm_context(context: dict, *, max_cases: int = 10, max_people: int = 50, max_entities: int = 60,
-                      max_relationships: int = 40, max_evidence: int = 60, max_chars: int = 28000) -> dict:
-    """Return a strict-size context for the model while leaving the full context for the UI."""
+def build_llm_context(
+    context: dict,
+    *,
+    max_cases: int = 5,
+    max_people: int = 30,
+    max_entities: int = 30,
+    max_relationships: int = 25,
+    max_evidence: int = 25,
+    max_chars: int = 12000,
+) -> dict:
+    """Create a small deterministic context for the hosted model.
+
+    The UI still receives the full case context; this function only controls
+    what is sent to NVIDIA.
+    """
     compact = {
         "cases": context.get("cases", [])[:max_cases],
         "counts": context.get("counts", {}),
@@ -128,25 +145,22 @@ def build_llm_context(context: dict, *, max_cases: int = 10, max_people: int = 5
         "evidence": context.get("evidence", [])[:max_evidence],
     }
 
-    import json
     encoded = json.dumps(compact, default=str, ensure_ascii=False, separators=(",", ":"))
     if len(encoded) <= max_chars:
         return compact
 
-    # Keep the highest-value structured information first.
-    compact["evidence"] = compact["evidence"][:25]
-    compact["entities"] = compact["entities"][:25]
-    compact["relationships"] = compact["relationships"][:20]
-    compact["people"] = compact["people"][:30]
-    encoded = json.dumps(compact, default=str, ensure_ascii=False, separators=(",", ":"))
-    if len(encoded) <= max_chars:
-        return compact
-
-    # Final hard cap: retain case metadata, counts, and the most important relationships.
-    compact["evidence"] = compact["evidence"][:10]
-    compact["entities"] = compact["entities"][:10]
-    compact["relationships"] = compact["relationships"][:10]
+    compact["evidence"] = compact["evidence"][:12]
+    compact["entities"] = compact["entities"][:15]
+    compact["relationships"] = compact["relationships"][:15]
     compact["people"] = compact["people"][:20]
+    encoded = json.dumps(compact, default=str, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded) <= max_chars:
+        return compact
+
+    compact["evidence"] = compact["evidence"][:5]
+    compact["entities"] = compact["entities"][:8]
+    compact["relationships"] = compact["relationships"][:8]
+    compact["people"] = compact["people"][:12]
     return compact
 
 
