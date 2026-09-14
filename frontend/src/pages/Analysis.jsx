@@ -79,19 +79,43 @@ export default function Analysis() {
     }
   }
 
+  const generateGraph = async () => {
+    if (!selected.length) {
+      setErr('Select at least one case before generating the graph.')
+      return
+    }
+    setErr('')
+    setGraphStatus('generating')
+    try {
+      const data = await withTimeout('/graph/generate', {
+        method: 'POST',
+        body: JSON.stringify({ case_ids: selected }),
+      })
+      setGraph(data)
+      setGraphStatus(data.source || 'generated')
+    } catch (e) {
+      setGraph({ nodes: [], edges: [] })
+      setGraphStatus('unavailable')
+      setErr(
+        e.name === 'AbortError'
+          ? 'Graph generation timed out. Check Neo4j connectivity and the selected case data.'
+          : e.message
+      )
+    }
+  }
+
   const refreshGraph = async () => {
     if (!selected.length) {
       setGraph({ nodes: [], edges: [] })
       setGraphStatus('not_loaded')
       return
     }
-
     try {
       const data = await withTimeout(
         '/analysis/graph?case_ids=' + encodeURIComponent(selected.join(','))
       )
       setGraph(data.graph || { nodes: [], edges: [] })
-      setGraphStatus(data.graph_status || 'unknown')
+      setGraphStatus(data.graph_status || data.source || 'unknown')
     } catch (e) {
       setGraph({ nodes: [], edges: [] })
       setGraphStatus('unavailable')
@@ -125,8 +149,8 @@ export default function Analysis() {
           })
           .finally(() => setGraphAnalysisLoading(false))
       }
-      // Graph loading is independent of AI generation.
-      void refreshGraph()
+      // Generate the selected-case graph explicitly after AI analysis.
+      void generateGraph()
     } catch (e) {
       setErr(
         e.name === 'AbortError'
@@ -202,7 +226,7 @@ export default function Analysis() {
 
       if (data.context) setContext(data.context)
       setAgentTools((prev) => ({ ...prev, [messageIndex + 1]: data.tool || data.mode || 'case_context' }))
-      void refreshGraph()
+      void generateGraph()
       void refreshSuspicious()
     } catch (e) {
       const detail = e.name === 'AbortError'
@@ -284,6 +308,13 @@ export default function Analysis() {
             onClick={runAnalysis}
           >
             {generating ? 'Generating…' : 'Generate Analysis'}
+          </button>
+          <button
+            className="btn"
+            disabled={!selected.length || graphStatus === 'generating'}
+            onClick={generateGraph}
+          >
+            {graphStatus === 'generating' ? 'Generating Graph…' : 'Generate Graph'}
           </button>
 
           {selected.length > 1 && (
@@ -579,7 +610,7 @@ export default function Analysis() {
         actions={
           graphStatus !== 'not_loaded' ? (
             <span className="muted small">
-              Source: {graphStatus === 'connected' ? 'Neo4j' : graphStatus === 'sql_fallback' ? 'SQL fallback' : graphStatus}
+              Source: {graphStatus === 'neo4j' ? 'Neo4j' : graphStatus === 'sql-fallback' ? 'SQL fallback' : graphStatus}
             </span>
           ) : null
         }
@@ -588,7 +619,7 @@ export default function Analysis() {
           <NetworkGraph data={graph} onSelectNode={() => {}} />
         ) : (
           <div className="empty muted">
-            Generate an analysis to load the selected-case graph.
+            Select the cases above and click Generate Graph.
           </div>
         )}
       </Panel>
