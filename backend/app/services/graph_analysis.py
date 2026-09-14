@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..security import ensure_case_access
 from .neo4j_service import Neo4jConnectionError, run_read_query
+from .graph_sync import sync_case_to_neo4j
 
 
 REL_TYPES = [
@@ -242,12 +243,61 @@ def _combined(graph: nx.Graph, metrics: dict[str, dict[str, float]], communities
     return rows[:50]
 
 
+def _sql_person_graph(db: Session, case_ids: list[str]) -> tuple[nx.Graph, dict[str, dict]]:
+    """Build a person relationship graph from SQL when Neo4j is empty/unavailable."""
+    from ..models import Person, Relationship, Event, Evidence
+
+    clean_ids = [x for x in case_ids if x]
+    evidence = db.query(Evidence).filter(Evidence.case_id.in_(clean_ids)).all() if clean_ids else []
+    events = db.query(Event).filter(Event.case_id.in_(clean_ids)).all() if clean_ids else []
+
+    person_ids: set[str] = set()
+    for row in evidence:
+        person_ids.update(x for x in (row.person_a_id, row.person_b_id) if x)
+    for row in events:
+        person_ids.update(x for x in (row.person_a_id, row.person_b_id) if x)
+
+    relationships = (
+        db.query(Relationship)
+        .filter(
+            Relationship.person_a_id.in_(person_ids),
+            Relationship.person_b_id.in_(person_ids),
+        )
+        .all()
+        if person_ids
+        else []
+    )
+    for row in relationships:
+        person_ids.update(x for x in (row.person_a_id, row.person_b_id) if x)
+
+    people = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+
+    graph = nx.Graph()
+    for person in people:
+        graph.add_node(person.id, name=person.name or person.id, case_id=None)
+
+    for row in relationships:
+        if not row.person_a_id or not row.person_b_id or row.person_a_id == row.person_b_id:
+            continue
+        score = float(row.score or 1.0)
+        if score <= 0:
+            score = 1.0
+        graph.add_edge(
+            row.person_a_id,
+            row.person_b_id,
+            relationship_type="CONNECTED_TO",
+            score=score,
+        )
+
+    return graph, {node_id: graph.nodes[node_id] for node_id in graph.nodes}
+
+
 def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     clean_ids = [x.strip() for x in case_ids if x and x.strip()]
     if not clean_ids:
         return {
             "case_ids": [],
-            "engine": "networkx-local",
+            "engine": f"networkx-local ({graph_source})",
             "entity_count": 0,
             "edge_count": 0,
             "metrics": {},
@@ -259,7 +309,26 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     for cid in clean_ids:
         ensure_case_access(db, user, cid)
 
-    graph, _ = _graph(clean_ids)
+    graph_source = "neo4j"
+    sync_errors = []
+    # Keep the graph synchronized with the SQL system of record before reading it.
+    for cid in clean_ids:
+        try:
+            sync_case_to_neo4j(db, cid)
+        except Exception as exc:
+            sync_errors.append(f"{cid}: {type(exc).__name__}")
+
+    try:
+        graph, _ = _graph(clean_ids)
+    except GraphAnalysisUnavailable:
+        graph, _ = _sql_person_graph(db, clean_ids)
+        graph_source = "sql_fallback"
+
+    if graph.number_of_nodes() == 0:
+        graph, _ = _sql_person_graph(db, clean_ids)
+        if graph.number_of_nodes() > 0:
+            graph_source = "sql_fallback_empty_neo4j"
+
     metrics = _base_metrics(graph)
     communities = _communities(graph)
     components = _components(graph)
@@ -288,6 +357,7 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
         "ranked_people": _combined(graph, metrics, communities),
         "community_sizes": dict(community_sizes),
         "temporal": _temporal_summary(db, clean_ids),
+        "graph_sync": {"attempted": len(clean_ids), "errors": sync_errors},
         "betweenness_mode": "exact",
         "betweenness_sampling_size": None,
     }
