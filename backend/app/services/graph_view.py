@@ -213,8 +213,8 @@ def get_case_graph(db: Session, user, requested_case_ids: list[str] | None = Non
     for cid in case_ids:
         try:
             sync_case_to_neo4j(db, cid)
-        except (ValueError, Neo4jConfigError, Neo4jConnectionError) as exc:
-            sync_errors.append(str(exc))
+        except Exception as exc:  # noqa: BLE001
+            sync_errors.append(f"{cid}: {type(exc).__name__}: {str(exc)[:300]}")
 
     query = """
     MATCH (c:Case)
@@ -273,8 +273,8 @@ def get_case_graph(db: Session, user, requested_case_ids: list[str] | None = Non
             if result["nodes"]:
                 result["sync_errors"] = sync_errors
                 return result
-    except (Neo4jConfigError, Neo4jConnectionError):
-        pass
+    except Exception as exc:  # noqa: BLE001
+        sync_errors.append(f"neo4j_graph_read: {type(exc).__name__}: {str(exc)[:300]}")
 
     fallback = _sql_graph(db, user, case_ids)
     fallback["sync_errors"] = sync_errors
