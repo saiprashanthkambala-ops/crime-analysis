@@ -22,6 +22,7 @@ export default function Analysis() {
   const [analysis, setAnalysis] = useState('')
   const [context, setContext] = useState(null)
   const [graph, setGraph] = useState({ nodes: [], edges: [] })
+  const [graphStatus, setGraphStatus] = useState('not_loaded')
   const [nvidiaReady, setNvidiaReady] = useState(null)
   const [graphAnalysis, setGraphAnalysis] = useState(null)
   const [graphAnalysisLoading, setGraphAnalysisLoading] = useState(false)
@@ -64,6 +65,7 @@ export default function Analysis() {
   const refreshGraph = async () => {
     if (!selected.length) {
       setGraph({ nodes: [], edges: [] })
+      setGraphStatus('not_loaded')
       return
     }
 
@@ -72,8 +74,10 @@ export default function Analysis() {
         '/analysis/graph?case_ids=' + encodeURIComponent(selected.join(','))
       )
       setGraph(data.graph || { nodes: [], edges: [] })
+      setGraphStatus(data.graph_status || 'unknown')
     } catch (e) {
       setGraph({ nodes: [], edges: [] })
+      setGraphStatus('unavailable')
       if (e.name !== 'AbortError') setErr(e.message)
     }
   }
@@ -502,13 +506,21 @@ export default function Analysis() {
         </Panel>
       </div>
 
-      <Panel title="Relevant Graph">
+      <Panel
+        title="Relevant Graph"
+        actions={
+          graphStatus !== 'not_loaded' ? (
+            <span className="muted small">
+              Source: {graphStatus === 'connected' ? 'Neo4j' : graphStatus === 'sql_fallback' ? 'SQL fallback' : graphStatus}
+            </span>
+          ) : null
+        }
+      >
         {graph.nodes?.length ? (
           <NetworkGraph data={graph} onSelectNode={() => {}} />
         ) : (
           <div className="empty muted">
-            Graph loading is separate from AI generation. Generate an analysis
-            to load the selected-case graph.
+            Generate an analysis to load the selected-case graph.
           </div>
         )}
       </Panel>
