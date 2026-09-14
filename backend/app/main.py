@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import settings, BASE_DIR
+from .config import BASE_DIR
 from .database import Base, engine, ensure_column_migrations
 from .routers import auth, data, intelligence, admin, graph
 from .seed import run_seed
@@ -18,13 +18,13 @@ from .neo4j.schema import initialize_schema
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_column_migrations()
-    if settings.AUTO_SEED:
+    if run_seed:
         run_seed()
     init_neo4j()
-    if neo4j_status()["status"] == "connected":
+    if neo4j_status().get("connected"):
         try:
             initialize_schema()
-        except Exception as exc:  # noqa: BLE001 - graph setup must not kill API
+        except Exception as exc:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).warning("Neo4j schema initialization failed: %s", exc)
     yield
@@ -55,38 +55,16 @@ def health():
 
 @app.get("/api/health/neo4j")
 def neo4j_health():
-<<<<<<< HEAD
-    """Dedicated Neo4j diagnostic probe.
-
-    Executes a real ``RETURN 1`` Cypher query against the remote database and
-    returns 503 when Neo4j is configured but unreachable. The response never
-    contains credentials or the connection URI.
-    """
-=======
->>>>>>> 0bd7b3c1e6e0da40cd4a0d5a5ba64d46eaf2393f
     status = neo4j_status()
-    http_status = 503 if status["status"] == "unavailable" else 200
-    return JSONResponse(status_code=http_status, content=status)
+    return JSONResponse(status_code=503 if status["status"] == "unavailable" else 200, content=status)
 
 
-<<<<<<< HEAD
 @app.get("/api/neo4j/status")
 @app.get("/api/neo4j/connected")
 def neo4j_status_endpoint():
-    """Endpoint to check whether Neo4j is connected or not.
-
-    Always returns HTTP 200 with the connection status and a boolean ``connected`` flag:
-    - Connected: ``{"connected": true, "status": "connected", "latency_ms": ...}``
-    - Unreachable: ``{"connected": false, "status": "unavailable", "reason": ..., "detail": ...}``
-    - Not configured: ``{"connected": false, "status": "not_configured", "detail": ...}``
-    """
     return JSONResponse(status_code=200, content=neo4j_status())
 
 
-# ---------------------------------------------------------------- static SPA
-# Registered last so API routes always take precedence over the SPA fallback.
-=======
->>>>>>> 0bd7b3c1e6e0da40cd4a0d5a5ba64d46eaf2393f
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 
 if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
