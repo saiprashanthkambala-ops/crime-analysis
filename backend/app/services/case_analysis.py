@@ -23,10 +23,11 @@ def _case_ids(db: Session, user, requested: list[str] | None) -> list[str]:
 
 
 def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None = None) -> dict:
-    """Build a compact, evidence-grounded overview for one or more authorized cases."""
+    """Build an evidence-grounded context for one or more authorized cases."""
     case_ids = _case_ids(db, user, requested_case_ids)
 
     cases = db.query(Case).filter(Case.id.in_(case_ids)).all() if case_ids else []
+    entities = db.query(Entity).filter(Entity.case_id.in_(case_ids)).all() if case_ids else []
     events = db.query(Event).filter(Event.case_id.in_(case_ids)).all() if case_ids else []
     evidence = db.query(Evidence).filter(Evidence.case_id.in_(case_ids)).all() if case_ids else []
 
@@ -40,21 +41,41 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
     if person_ids:
         relationships = (
             db.query(Relationship)
-            .filter(Relationship.person_a_id.in_(person_ids), Relationship.person_b_id.in_(person_ids))
+            .filter(
+                Relationship.person_a_id.in_(person_ids),
+                Relationship.person_b_id.in_(person_ids),
+            )
             .all()
         )
 
-    person_count = db.query(func.count(func.distinct(Person.id))).filter(Person.id.in_(person_ids)).scalar() if person_ids else 0
-    entity_count = db.query(Entity).filter(Entity.case_id.in_(case_ids)).count() if case_ids else 0
+    person_count = (
+        db.query(func.count(func.distinct(Person.id)))
+        .filter(Person.id.in_(person_ids))
+        .scalar()
+        if person_ids
+        else 0
+    )
 
     summary_cases = [
-        {
-            "id": c.id,
-            "name": c.name,
-            "status": c.status,
-            "description": c.description or "",
-        }
+        {"id": c.id, "name": c.name, "status": c.status, "description": c.description or ""}
         for c in cases
+    ]
+
+    entity_rows = [
+        {
+            "id": e.id,
+            "type": e.entity_type,
+            "original_value": e.original_value,
+            "normalized_value": e.normalized_value,
+            "confidence": e.confidence,
+            "method": e.extraction_method,
+            "source": e.source_reference,
+            "document_id": e.source_document_id,
+            "date": e.observed_date,
+            "time": e.observed_time,
+            "case_id": e.case_id,
+        }
+        for e in entities[:500]
     ]
 
     relation_rows = []
@@ -78,13 +99,14 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
             "person_a": e.person_a_id,
             "person_b": e.person_b_id,
             "source": e.source_reference,
+            "document_id": e.source_document_id,
             "date": e.observed_date,
             "time": e.observed_time,
             "confidence": e.confidence,
             "details": e.details or {},
             "case_id": e.case_id,
         }
-        for e in evidence[:200]
+        for e in evidence[:500]
     ]
 
     graph = {"nodes": [], "edges": []}
@@ -114,8 +136,8 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
               [r IN rels |
                 {data: {
                   id: elementId(r),
-                  source: startNode(r).id,
-                  target: endNode(r).id,
+                  source: coalesce(startNode(r).id, startNode(r).key),
+                  target: coalesce(endNode(r).id, endNode(r).key),
                   label: type(r),
                   type: type(r),
                   score: r.score,
@@ -126,10 +148,7 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
             {"case_ids": case_ids},
         )
         if rows:
-            graph = {
-                "nodes": rows[0].get("nodes", []),
-                "edges": rows[0].get("edges", []),
-            }
+            graph = {"nodes": rows[0].get("nodes", []), "edges": rows[0].get("edges", [])}
         graph_status = "connected"
     except Neo4jConnectionError:
         graph_status = "unavailable"
@@ -140,11 +159,12 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
         "counts": {
             "cases": len(cases),
             "people": int(person_count or 0),
-            "entities": entity_count,
+            "entities": len(entities),
             "events": len(events),
             "evidence": len(evidence),
             "relationships": len(relationships),
         },
+        "entities": entity_rows,
         "relationships": relation_rows,
         "evidence": evidence_rows,
         "graph": graph,
