@@ -32,6 +32,10 @@ def c_to_dict(c: Case):
     return {
         "id": c.id, "name": c.name, "description": c.description,
         "status": c.status, "created_at": c.created_at.isoformat() if c.created_at else None,
+        "neo4j_sync_status": c.neo4j_sync_status or "PENDING",
+        "neo4j_sync_at": c.neo4j_sync_at.isoformat() if c.neo4j_sync_at else None,
+        "neo4j_sync_error": c.neo4j_sync_error,
+        "neo4j_sync_counts": c.neo4j_sync_counts or {},
         "documents": [
             {
                 "id": d.id, "filename": d.filename, "file_type": d.file_type,
