@@ -83,6 +83,24 @@ def nvidia_status(user: User = Depends(get_current_user)):
     }
 
 
+@router.get("/nvidia-ping")
+def nvidia_ping(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Small provider-only smoke test, independent of case data and Neo4j."""
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
+    try:
+        result = nvidia_chat([
+            {"role": "user", "content": "Reply with exactly: NVIDIA_OK"}
+        ])
+        content = result.choices[0].message.content or ""
+        log_audit(db, user.id, "nvidia_ping", "system", None)
+        return {"ok": True, "model": "nvidia/nemotron-3.5-lightning-30b-a3b", "response": content}
+    except NVIDIAClientError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except Exception:
+        raise HTTPException(status_code=502, detail="NVIDIA provider test failed. Check backend logs.")
+
+
 @router.post("/generate")
 def generate_analysis(
     body: AnalysisRequest,
@@ -136,7 +154,7 @@ def chat_endpoint(
         except NVIDIAClientError as exc:
             yield json.dumps({"type": "error", "detail": str(exc)}) + "
 "
-        except Exception as exc:  # noqa: BLE001
+        except Exception:
             yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}) + "
 "
 
