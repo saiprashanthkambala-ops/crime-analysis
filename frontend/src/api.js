@@ -44,7 +44,11 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
         'Content-Type': 'application/json',
         ...(token ? { Authorization: 'Bearer ' + token } : {}),
       },
-      body: JSON.stringify({ case_ids: caseIds, message }),
+      body: JSON.stringify({
+        case_ids: caseIds,
+        message,
+        history: options.history || [],
+      }),
       signal: controller.signal,
     })
 
@@ -64,6 +68,13 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
     }
 
     if (!res.body) throw new Error('Streaming is not supported by this browser.')
+
+    const contentType = res.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const body = await res.json()
+      if (body.answer) onToken(body.answer)
+      return { context: body.context || null, mode: body.mode || 'deterministic' }
+    }
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
