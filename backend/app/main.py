@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,21 +54,17 @@ def health():
 
 @app.get("/api/health/neo4j")
 def neo4j_health():
-<<<<<<< HEAD
     """Dedicated Neo4j diagnostic probe.
 
     Executes a real ``RETURN 1`` Cypher query against the remote database and
     returns 503 when Neo4j is configured but unreachable. The response never
     contains credentials or the connection URI.
     """
-=======
->>>>>>> 0bd7b3c1e6e0da40cd4a0d5a5ba64d46eaf2393f
     status = neo4j_status()
     http_status = 503 if status["status"] == "unavailable" else 200
     return JSONResponse(status_code=http_status, content=status)
 
 
-<<<<<<< HEAD
 @app.get("/api/neo4j/status")
 @app.get("/api/neo4j/connected")
 def neo4j_status_endpoint():
@@ -85,8 +80,6 @@ def neo4j_status_endpoint():
 
 # ---------------------------------------------------------------- static SPA
 # Registered last so API routes always take precedence over the SPA fallback.
-=======
->>>>>>> 0bd7b3c1e6e0da40cd4a0d5a5ba64d46eaf2393f
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 
 if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
