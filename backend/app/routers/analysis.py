@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
 from ..security import get_current_user, log_audit
-from ..services.case_analysis import build_case_analysis, _case_ids
-from ..services.nvidia_client import chat as nvidia_chat, is_configured
+from ..services.case_analysis import build_case_analysis, build_case_graph
+from ..services.nvidia_client import NVIDIAClientError, chat as nvidia_chat, is_configured
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -24,8 +24,28 @@ class ChatRequest(BaseModel):
     case_ids: list[str] = Field(default_factory=list)
 
 
-def _context_for_chat(db: Session, user: User, requested: list[str]) -> dict:
-    return build_case_analysis(db, user, requested or None)
+def _llm_messages(context: dict, task: str, question: str | None = None):
+    system = (
+        "You are the Crime Analysis investigation assistant. "
+        "Use ONLY the supplied case data. Do not invent facts, dates, people, "
+        "evidence, relationships, or scores. Relationship scores are evidence-strength "
+        "signals, not probabilities of guilt. Do not declare a person guilty or innocent. "
+        "Clearly distinguish observed facts from interpretation. Keep responses concise."
+    )
+    payload = {
+        "task": task,
+        "cases": context["cases"],
+        "people": context["people"],
+        "entities": context["entities"],
+        "relationships": context["relationships"],
+        "evidence": context["evidence"],
+    }
+    if question:
+        payload["investigator_question"] = question
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(payload, default=str)},
+    ]
 
 
 @router.get("")
@@ -36,8 +56,30 @@ def get_analysis(
 ):
     requested = [x.strip() for x in (case_ids or "").split(",") if x.strip()]
     context = build_case_analysis(db, user, requested or None)
+    graph = build_case_graph(db, user, requested or None)
+    context.update(graph)
     log_audit(db, user.id, "view_analysis", "case", ",".join(context["case_ids"]))
     return context
+
+
+@router.get("/graph")
+def get_analysis_graph(
+    case_ids: str | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requested = [x.strip() for x in (case_ids or "").split(",") if x.strip()]
+    return build_case_graph(db, user, requested or None)
+
+
+@router.get("/nvidia-status")
+def nvidia_status(user: User = Depends(get_current_user)):
+    return {
+        "configured": is_configured(),
+        "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "message": "NVIDIA API key is configured on the backend." if is_configured()
+                   else "NVIDIA API key is missing from the backend environment.",
+    }
 
 
 @router.post("/generate")
@@ -49,20 +91,19 @@ def generate_analysis(
     context = build_case_analysis(db, user, body.case_ids or None)
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
-    system = (
-        "You are the Crime Analysis investigation assistant. "
-        "Use ONLY the supplied case context. Summarize observable facts, "
-        "relationships, evidence, and existing relationship-strength signals. "
-        "Do not invent facts, dates, people, evidence, or scores. "
-        "Do not claim guilt or innocence. Relationship scores are evidence-strength "
-        "signals, not probabilities of guilt. Clearly separate facts from interpretation."
-    )
-    user_msg = "Generate an investigator-facing analysis of the selected case(s).\n\n" + json.dumps(context, default=str)
     try:
-        result = nvidia_chat([{"role": "system", "content": system}, {"role": "user", "content": user_msg}], stream=False)
+        result = nvidia_chat(
+            _llm_messages(
+                context,
+                "Generate an investigator-facing analysis of the selected case(s). "
+                "Highlight important relationships, entity patterns, evidence, and notable observations.",
+            )
+        )
         content = result.choices[0].message.content or ""
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"NVIDIA analysis request failed: {exc}") from exc
+    except NVIDIAClientError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except Exception:
+        raise HTTPException(status_code=502, detail="NVIDIA analysis request failed. Check backend logs for the provider response.")
     log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
     return {"analysis": content, "context": context}
 
@@ -73,26 +114,15 @@ def chat_endpoint(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    context = _context_for_chat(db, user, body.case_ids)
+    context = build_case_analysis(db, user, body.case_ids or None)
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
-    system = (
-        "You are an evidence-grounded investigation assistant. "
-        "Answer only from the supplied case context. Explain relationship signals "
-        "and graph facts clearly. Do not fabricate. Never state that a person is "
-        "a confirmed criminal or that a graph score is probability of guilt. "
-        "When evidence is insufficient, say so. Keep answers useful to an investigator."
-    )
-    payload = (
-        "Authorized case context:\n"
-        + json.dumps(context, default=str)
-        + "\n\nInvestigator question:\n"
-        + body.message
-    )
     try:
-        result = nvidia_chat([{"role": "system", "content": system}, {"role": "user", "content": payload}], stream=False)
+        result = nvidia_chat(_llm_messages(context, "Answer the investigator's question from the supplied case data.", body.message))
         answer = result.choices[0].message.content or ""
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"NVIDIA chat request failed: {exc}") from exc
+    except NVIDIAClientError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except Exception:
+        raise HTTPException(status_code=502, detail="NVIDIA chat request failed. Check backend logs for the provider response.")
     log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
     return {"answer": answer, "context": context}
