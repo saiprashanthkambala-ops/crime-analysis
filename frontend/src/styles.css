@@ -808,3 +808,10 @@ input[type="file"] { padding: 6px; }
   .chat-form { grid-template-columns: 1fr; }
   .chat-form .btn { width: 100%; }
 }
+
+
+.analysis-markdown { line-height: 1.6; }
+.analysis-md-heading { margin: 12px 0 6px; font-size: 14px; }
+.analysis-md-paragraph { margin: 0 0 8px; }
+.analysis-md-list { margin: 4px 0 10px 20px; padding: 0; }
+.analysis-md-list li { margin: 4px 0; }
