@@ -44,7 +44,11 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
         'Content-Type': 'application/json',
         ...(token ? { Authorization: 'Bearer ' + token } : {}),
       },
-      body: JSON.stringify({ case_ids: caseIds, message }),
+      body: JSON.stringify({
+        case_ids: caseIds,
+        message,
+        history: options.history || [],
+      }),
       signal: controller.signal,
     })
 
