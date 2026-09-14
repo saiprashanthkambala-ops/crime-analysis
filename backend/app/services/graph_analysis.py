@@ -311,34 +311,44 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     for cid in clean_ids:
         ensure_case_access(db, user, cid)
 
-    graph_source = "neo4j"
-    sync_errors = []
-    sync_verified = True
+    # SQL is the authoritative relationship store. Graph metrics are calculated
+    # directly from it so a Neo4j outage or sync problem cannot block analysis.
+    graph, _ = _sql_person_graph(db, clean_ids)
+    graph_source = "sql_authoritative"
+    sync_errors: list[str] = []
 
-    # SQL is the source of truth. Synchronize and verify before analyzing Neo4j.
+    # Best-effort Neo4j synchronization/status. Never blocks metric calculation.
     for cid in clean_ids:
         try:
             sync_case_to_neo4j(db, cid)
-        except Exception as exc:
-            sync_verified = False
+        except Exception as exc:  # noqa: BLE001
             sync_errors.append(f"{cid}: {type(exc).__name__}: {str(exc)[:200]}")
 
-    if sync_verified:
-        try:
-            graph, _ = _graph(clean_ids)
-        except GraphAnalysisUnavailable as exc:
-            graph, _ = _sql_person_graph(db, clean_ids)
-            graph_source = "sql_fallback"
-            sync_errors.append(f"neo4j_read: {type(exc).__name__}")
-    else:
-        graph, _ = _sql_person_graph(db, clean_ids)
-        graph_source = "sql_fallback_sync_failed"
-
-    # Never present an empty Neo4j graph when SQL contains the case relationships.
-    if graph.number_of_nodes() == 0 and graph_source == "neo4j":
-        graph, _ = _sql_person_graph(db, clean_ids)
-        if graph.number_of_nodes() > 0:
-            graph_source = "sql_fallback_empty_neo4j"
+    if graph.number_of_nodes() == 0:
+        return {
+            "case_ids": clean_ids,
+            "engine": "networkx-local",
+            "graph_source": graph_source,
+            "gds_version": None,
+            "entity_count": 0,
+            "edge_count": 0,
+            "metrics": {
+                "degree_centrality": [],
+                "betweenness_centrality": [],
+                "closeness_centrality": [],
+                "pagerank": [],
+                "pagerank_directed": [],
+                "louvain_communities": [],
+                "connected_components": [],
+                "node_similarity": [],
+            },
+            "ranked_people": [],
+            "community_sizes": {},
+            "temporal": _temporal_summary(db, clean_ids),
+            "graph_sync": {"attempted": len(clean_ids), "errors": sync_errors},
+            "betweenness_mode": "exact",
+            "betweenness_sampling_size": None,
+        }
 
     metrics = _base_metrics(graph)
     communities = _communities(graph)
@@ -373,7 +383,6 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
         "betweenness_mode": "exact",
         "betweenness_sampling_size": None,
     }
-
 
 def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
     return analyze_cases(db, user, [case_id])
