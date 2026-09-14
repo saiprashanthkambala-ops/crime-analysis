@@ -102,8 +102,8 @@ def _fast_tools(context: dict, question: str) -> InvestigationToolResult | None:
     return None
 
 
-def run_investigation_tools(db: Session, user, case_ids: list[str], question: str) -> InvestigationToolResult:
-    context = build_case_analysis(db, user, case_ids or None)
+def run_investigation_tools(db: Session, user, case_ids: list[str], question: str, context: dict | None = None) -> InvestigationToolResult:
+    context = context or build_case_analysis(db, user, case_ids or None)
 
     fast = _fast_tools(context, question)
     if fast:
