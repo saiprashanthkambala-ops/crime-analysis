@@ -28,6 +28,7 @@ from .extraction import extract_text, extract_csv_rows, extract_json_records
 from .normalization import normalize_value, normalize_name
 from .resolution import resolve_mentions
 from .relationships import discover_relationships
+from .graph_sync import sync_case_to_neo4j
 
 logger = logging.getLogger("crime_analysis.pipeline")
 
@@ -330,6 +331,24 @@ def process_document(db: Session, document: Document, content: bytes,
         document.persons_discovered = max(0, after["persons"] - before["persons"])
         document.evidence_discovered = max(0, after["evidence"] - before["evidence"])
         document.relationships_discovered = _evidence_linked_relationships(db, document)
+
+        # SQL is the source of truth. Push the completed case projection to
+        # Neo4j before marking the import fully complete. A Neo4j outage does
+        # not invalidate the imported case; it leaves the case explicitly
+        # marked FAILED for graph synchronization and can be retried later.
+        try:
+            sync_result = sync_case_to_neo4j(db, document.case_id)
+            _audit(db, document, "neo4j_sync_completed", {
+                "case_id": document.case_id,
+                "counts": sync_result,
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Neo4j sync failed after import for case %s", document.case_id)
+            _audit(db, document, "neo4j_sync_failed", {
+                "case_id": document.case_id,
+                "error": str(exc)[:500],
+            })
+
         document.status = "completed"
         document.processed_at = datetime.utcnow()
         job.status = "completed"

@@ -42,6 +42,14 @@ _DOCUMENT_ADDITIONS = {
     "retry_count": "INTEGER DEFAULT 0",
 }
 
+_CASE_ADDITIONS = {
+    "neo4j_sync_status": "VARCHAR(20) DEFAULT 'PENDING'",
+    "neo4j_sync_at": "DATETIME",
+    "neo4j_sync_error": "TEXT",
+    "neo4j_sync_counts": "JSON",
+}
+
+
 
 def ensure_column_migrations():
     """Add columns introduced after the first public release, if missing."""
@@ -60,6 +68,12 @@ def ensure_column_migrations():
             for name, ddl in _DOCUMENT_ADDITIONS.items():
                 if name not in existing:
                     conn.execute(text(f"ALTER TABLE documents ADD COLUMN {name} {ddl}"))
+        if "cases" in tables:
+            existing = {c["name"] for c in inspector.get_columns("cases")}
+            for name, ddl in _CASE_ADDITIONS.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE cases ADD COLUMN {name} {ddl}"))
+
         # refresh inspector state after ALTER statements
         inspector = inspect(engine)
         tables = set(inspector.get_table_names())

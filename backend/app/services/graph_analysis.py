@@ -297,13 +297,15 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     if not clean_ids:
         return {
             "case_ids": [],
-            "engine": f"networkx-local ({graph_source})",
+            "engine": "networkx-local",
+            "graph_source": "empty",
             "entity_count": 0,
             "edge_count": 0,
             "metrics": {},
             "ranked_people": [],
             "community_sizes": {},
             "temporal": _temporal_summary(db, []),
+            "graph_sync": {"attempted": 0, "errors": []},
         }
 
     for cid in clean_ids:
@@ -311,20 +313,29 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
 
     graph_source = "neo4j"
     sync_errors = []
-    # Keep the graph synchronized with the SQL system of record before reading it.
+    sync_verified = True
+
+    # SQL is the source of truth. Synchronize and verify before analyzing Neo4j.
     for cid in clean_ids:
         try:
             sync_case_to_neo4j(db, cid)
         except Exception as exc:
-            sync_errors.append(f"{cid}: {type(exc).__name__}")
+            sync_verified = False
+            sync_errors.append(f"{cid}: {type(exc).__name__}: {str(exc)[:200]}")
 
-    try:
-        graph, _ = _graph(clean_ids)
-    except GraphAnalysisUnavailable:
+    if sync_verified:
+        try:
+            graph, _ = _graph(clean_ids)
+        except GraphAnalysisUnavailable as exc:
+            graph, _ = _sql_person_graph(db, clean_ids)
+            graph_source = "sql_fallback"
+            sync_errors.append(f"neo4j_read: {type(exc).__name__}")
+    else:
         graph, _ = _sql_person_graph(db, clean_ids)
-        graph_source = "sql_fallback"
+        graph_source = "sql_fallback_sync_failed"
 
-    if graph.number_of_nodes() == 0:
+    # Never present an empty Neo4j graph when SQL contains the case relationships.
+    if graph.number_of_nodes() == 0 and graph_source == "neo4j":
         graph, _ = _sql_person_graph(db, clean_ids)
         if graph.number_of_nodes() > 0:
             graph_source = "sql_fallback_empty_neo4j"
@@ -341,6 +352,7 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     return {
         "case_ids": clean_ids,
         "engine": "networkx-local",
+        "graph_source": graph_source,
         "gds_version": None,
         "entity_count": graph.number_of_nodes(),
         "edge_count": graph.number_of_edges(),

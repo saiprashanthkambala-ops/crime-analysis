@@ -94,17 +94,29 @@ def init_neo4j() -> None:
         logger.warning("Neo4j startup check failed: %s", exc)
 
 def _run_query(query: str, parameters: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
-    driver = get_driver()
-    try:
+    def execute(driver):
         with driver.session() as session:
             result = session.run(query, parameters or {})
             return [record.data() for record in result]
+
+    driver = get_driver()
+    try:
+        return execute(driver)
     except AuthError as exc:
         raise Neo4jConnectionError("Neo4j authentication failed (check NEO4J_USERNAME / NEO4J_PASSWORD).", reason="auth_error", detail=redact_secrets(exc)) from exc
-    except (ServiceUnavailable, SessionExpired) as exc:
-        raise Neo4jConnectionError("Neo4j is unavailable.", reason="unavailable", detail=redact_secrets(exc)) from exc
-    except DriverError as exc:
-        raise Neo4jConnectionError("Neo4j connection error.", reason="connection_error", detail=redact_secrets(exc)) from exc
+    except (ServiceUnavailable, SessionExpired, DriverError) as exc:
+        # Aura/cloud connections can be reset while a pooled driver still
+        # points at a dead connection. Recreate the driver once and retry.
+        logger.warning("Neo4j connection failure; recreating driver once: %s", redact_secrets(exc))
+        close_driver()
+        try:
+            return execute(get_driver())
+        except (ServiceUnavailable, SessionExpired, DriverError) as retry_exc:
+            raise Neo4jConnectionError(
+                "Neo4j connection error after retry.",
+                reason="connection_error",
+                detail=redact_secrets(retry_exc),
+            ) from retry_exc
     except Neo4jError as exc:
         raise Neo4jConnectionError("Neo4j rejected the query.", reason="query_error", detail=redact_secrets(exc)) from exc
 
