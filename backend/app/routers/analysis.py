@@ -24,9 +24,15 @@ class AnalysisRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     case_ids: list[str] = Field(default_factory=list)
+    history: list[dict[str, str]] = Field(default_factory=list, max_length=8)
 
 
-def _llm_messages(context: dict, task: str, question: str | None = None):
+def _llm_messages(
+    context: dict,
+    task: str,
+    question: str | None = None,
+    history: list[dict[str, str]] | None = None,
+):
     system = (
         "You are the Crime Analysis investigation assistant. "
         "Use ONLY the supplied case data. Do not invent facts, dates, people, "
@@ -41,10 +47,14 @@ def _llm_messages(context: dict, task: str, question: str | None = None):
     }
     if question:
         payload["investigator_question"] = question
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)},
-    ]
+    messages = [{"role": "system", "content": system}]
+    for item in (history or [])[-6:]:
+        role = item.get("role")
+        content = item.get("content", "")
+        if role in {"user", "assistant"} and content:
+            messages.append({"role": role, "content": str(content)[:3000]})
+    messages.append({"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)})
+    return messages
 
 
 def _is_greeting(message: str) -> bool:
@@ -53,6 +63,51 @@ def _is_greeting(message: str) -> bool:
         "hi", "hii", "hiii", "hello", "hey", "heyy", "yo",
         "goodmorning", "goodevening",
     }
+
+
+def _fast_answer(context: dict, message: str) -> str | None:
+    """Answer simple factual questions without an LLM round-trip."""
+    q = re.sub(r"[^a-z0-9 ]", " ", message.lower()).strip()
+    q = re.sub(r"\s+", " ", q)
+
+    counts = context.get("counts", {})
+    rels = context.get("relationships", [])
+
+    if any(x in q for x in ("how many people", "number of people", "people in this case")):
+        return f"There are {counts.get('people', 0)} people represented in the selected case data."
+    if any(x in q for x in ("how many relationships", "number of relationships")):
+        return f"There are {counts.get('relationships', 0)} relationship records in the selected case data."
+    if any(x in q for x in ("how many entities", "number of entities")):
+        return f"There are {counts.get('entities', 0)} extracted entities in the selected case data."
+    if any(x in q for x in ("how many evidence", "number of evidence")):
+        return f"There are {counts.get('evidence', 0)} evidence records in the selected case data."
+
+    if any(x in q for x in ("strongest relationship", "highest relationship score", "highest score")) and rels:
+        strongest = max(rels, key=lambda r: (r.get("score") or 0))
+        a = strongest.get("person_a", {}).get("name") or strongest.get("person_a", {}).get("id")
+        b = strongest.get("person_b", {}).get("name") or strongest.get("person_b", {}).get("id")
+        return (
+            f"**Strongest recorded relationship:** {a} ↔ {b}\n\n"
+            f"- Score: {strongest.get('score', '—')}\n"
+            f"- Strength: {strongest.get('strength', '—')}\n"
+            f"- Decision: {strongest.get('decision') or 'Not recorded'}"
+        )
+
+    if any(x in q for x in ("most connected", "highest degree", "most connections")) and rels:
+        degrees = {}
+        names = {}
+        for r in rels:
+            for side in ("person_a", "person_b"):
+                person = r.get(side) or {}
+                pid = person.get("id")
+                if pid:
+                    degrees[pid] = degrees.get(pid, 0) + 1
+                    names[pid] = person.get("name") or pid
+        if degrees:
+            pid = max(degrees, key=degrees.get)
+            return f"**Most connected in the recorded relationship set:** {names[pid]} with {degrees[pid]} relationship links."
+
+    return None
 
 
 @router.get("")
@@ -134,10 +189,16 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
         log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
         return {"answer": answer, "context": context}
 
+    fast_answer = _fast_answer(context, body.message)
+    if fast_answer:
+        log_audit(db, user.id, "analysis_chat_fast_path", "case", ",".join(context["case_ids"]))
+        return {"answer": fast_answer, "context": context, "mode": "deterministic"}
+
     messages = _llm_messages(
         context,
         "Answer the investigator's question from the supplied case data.",
         body.message,
+        body.history,
     )
 
     def event_stream():
