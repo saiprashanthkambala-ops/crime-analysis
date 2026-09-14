@@ -174,6 +174,14 @@ export default function Analysis() {
     ])
     setChatting(true)
 
+    const history = messages
+      .slice(-6)
+      .map((m) => ({
+        role: m.role === 'investigator' ? 'user' : 'assistant',
+        content: m.content || '',
+      }))
+      .filter((m) => m.content)
+
     try {
       const data = await streamAnalysisChat(
         selected,
