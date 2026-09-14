@@ -1,6 +1,7 @@
 """Case-scoped graph synchronization and graph read endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -34,6 +35,42 @@ def get_graph(
         for cid in ids:
             ensure_case_access(db, user, cid)
     return get_case_graph(db, user, ids)
+
+
+class GenerateGraphRequest(BaseModel):
+    case_ids: list[str]
+
+
+@router.post("/generate")
+def generate_graph(
+    body: GenerateGraphRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Synchronize and materialize the complete graph for selected cases."""
+    from ..security import ensure_case_access
+
+    ids = [x.strip() for x in body.case_ids if x and x.strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Select at least one case.")
+    for cid in ids:
+        ensure_case_access(db, user, cid)
+
+    try:
+        graph = get_case_graph(db, user, ids)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="Graph generation failed. Check the backend log.") from exc
+
+    if not graph.get("nodes"):
+        raise HTTPException(
+            status_code=422,
+            detail="No graph nodes were generated for the selected case(s). Verify the case has imported entities and that Neo4j synchronization has completed.",
+        )
+
+    graph["generated"] = True
+    graph["node_count"] = len(graph.get("nodes", []))
+    graph["edge_count"] = len(graph.get("edges", []))
+    return graph
 
 
 @router.post("/sync/{case_id}")
