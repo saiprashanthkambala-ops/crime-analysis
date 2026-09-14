@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api, streamAnalysisChat } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
+import MarkdownMessage from '../components/MarkdownMessage'
 
 const REQUEST_TIMEOUT_MS = 50000
 
@@ -406,7 +407,7 @@ export default function Analysis() {
       <div className="two-col analysis-workspace">
         <Panel title="Generated Case Analysis">
           {analysis ? (
-            <div className="analysis-text">{analysis}</div>
+            <MarkdownMessage text={analysis} />
           ) : (
             <div className="empty muted">
               Select one or more cases and generate an analysis.
@@ -434,7 +435,7 @@ export default function Analysis() {
                       ? 'Investigator'
                       : 'Nemotron'}
                   </div>
-                  <div className="chat-content">{m.content}</div>
+                  <div className="chat-content">{m.role === 'assistant' ? <MarkdownMessage text={m.content} /> : m.content}</div>
                 </div>
               ))}
 
