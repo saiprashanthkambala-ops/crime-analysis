@@ -22,9 +22,11 @@ export default function Analysis() {
   const [analysis, setAnalysis] = useState('')
   const [context, setContext] = useState(null)
   const [graph, setGraph] = useState({ nodes: [], edges: [] })
+  const [graphStatus, setGraphStatus] = useState('not_loaded')
   const [nvidiaReady, setNvidiaReady] = useState(null)
   const [graphAnalysis, setGraphAnalysis] = useState(null)
   const [graphAnalysisLoading, setGraphAnalysisLoading] = useState(false)
+  const [graphAnalysisCaseId, setGraphAnalysisCaseId] = useState('')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [message, setMessage] = useState('')
@@ -52,15 +54,18 @@ export default function Analysis() {
   )
 
   const toggleCase = (id) => {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    )
+    setSelected((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      if (!next.includes(graphAnalysisCaseId)) setGraphAnalysisCaseId(next[0] || '')
+      return next
+    })
     setGraphAnalysis(null)
   }
 
   const refreshGraph = async () => {
     if (!selected.length) {
       setGraph({ nodes: [], edges: [] })
+      setGraphStatus('not_loaded')
       return
     }
 
@@ -69,8 +74,10 @@ export default function Analysis() {
         '/analysis/graph?case_ids=' + encodeURIComponent(selected.join(','))
       )
       setGraph(data.graph || { nodes: [], edges: [] })
+      setGraphStatus(data.graph_status || 'unknown')
     } catch (e) {
       setGraph({ nodes: [], edges: [] })
+      setGraphStatus('unavailable')
       if (e.name !== 'AbortError') setErr(e.message)
     }
   }
@@ -87,7 +94,19 @@ export default function Analysis() {
 
       setAnalysis(data.analysis || '')
       setContext(data.context || null)
-
+      const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
+      if (firstGraphCase) {
+        setGraphAnalysisCaseId(firstGraphCase)
+        setGraphAnalysisLoading(true)
+        void withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
+          .then((graphData) => setGraphAnalysis(graphData))
+          .catch((graphError) => {
+            if (graphError.name !== 'AbortError') {
+              setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + graphError.message)
+            }
+          })
+          .finally(() => setGraphAnalysisLoading(false))
+      }
       // Graph loading is independent of AI generation.
       void refreshGraph()
     } catch (e) {
@@ -101,15 +120,16 @@ export default function Analysis() {
     }
   }
 
-  const runGraphAnalysis = async () => {
-    if (!selected.length) {
-      setErr('Select at least one case to run graph analysis.')
+  const runGraphAnalysis = async (requestedCaseId = '') => {
+    const caseId = requestedCaseId || graphAnalysisCaseId || selected[0] || ''
+    if (!caseId) {
+      setErr('Select a case to run graph analysis.')
       return
     }
     setErr('')
     setGraphAnalysisLoading(true)
     try {
-      const data = await withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(selected.join(',')))
+      const data = await withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(caseId))
       setGraphAnalysis(data)
     } catch (e) {
       setErr(
@@ -238,10 +258,26 @@ export default function Analysis() {
             {generating ? 'Generating…' : 'Generate Analysis'}
           </button>
 
+          {selected.length > 1 && (
+            <select
+              className="select-inline"
+              value={graphAnalysisCaseId || selected[0] || ''}
+              onChange={(e) => {
+                setGraphAnalysisCaseId(e.target.value)
+                setGraphAnalysis(null)
+              }}
+            >
+              {selected.map((caseId) => (
+                <option key={caseId} value={caseId}>
+                  Graph metrics: {caseId}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             className="btn"
             disabled={!selected.length || graphAnalysisLoading}
-            onClick={runGraphAnalysis}
+            onClick={() => runGraphAnalysis()}
           >
             {graphAnalysisLoading ? 'Running Graph Analysis…' : 'Run Graph Analysis'}
           </button>
@@ -468,13 +504,21 @@ export default function Analysis() {
         </Panel>
       </div>
 
-      <Panel title="Relevant Graph">
+      <Panel
+        title="Relevant Graph"
+        actions={
+          graphStatus !== 'not_loaded' ? (
+            <span className="muted small">
+              Source: {graphStatus === 'connected' ? 'Neo4j' : graphStatus === 'sql_fallback' ? 'SQL fallback' : graphStatus}
+            </span>
+          ) : null
+        }
+      >
         {graph.nodes?.length ? (
           <NetworkGraph data={graph} onSelectNode={() => {}} />
         ) : (
           <div className="empty muted">
-            Graph loading is separate from AI generation. Generate an analysis
-            to load the selected-case graph.
+            Generate an analysis to load the selected-case graph.
           </div>
         )}
       </Panel>
