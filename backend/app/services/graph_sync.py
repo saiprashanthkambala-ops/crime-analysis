@@ -106,6 +106,11 @@ def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
                     "key": key, "value": e.original_value, "normalized_value": e.normalized_value,
                     "entity_type": e.entity_type, "case_id": case_id,
                 })
+                tx.run(
+                    f"MATCH (n:{label} {{key: $key}}), (c:Case {{id: $case_id}}) "
+                    "MERGE (n)-[:BELONGS_TO]->(c)",
+                    key=key, case_id=case_id
+                ).consume()
 
             # Link identifier entities to their canonical persons using the existing association table.
             links = (
@@ -134,6 +139,11 @@ def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
                     "date": ev.observed_date, "time": ev.observed_time,
                     "source_document_id": ev.source_document_id, "case_id": case_id,
                 })
+                tx.run(
+                    "MATCH (e:Event {id: $event_id}), (c:Case {id: $case_id}) "
+                    "MERGE (e)-[:BELONGS_TO]->(c)",
+                    event_id=str(ev.id), case_id=case_id
+                ).consume()
                 if ev.person_a_id:
                     tx.run(
                         "MATCH (p:Person {id: $pid}), (e:Event {id: $eid}) "
@@ -161,6 +171,11 @@ def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
                     "date": evd.observed_date, "time": evd.observed_time, "case_id": case_id,
                     "details": evd.details or {},
                 })
+                tx.run(
+                    "MATCH (e:Evidence {id: $evidence_id}), (c:Case {id: $case_id}) "
+                    "MERGE (e)-[:BELONGS_TO]->(c)",
+                    evidence_id=evd.id, case_id=case_id
+                ).consume()
                 if evd.person_a_id:
                     tx.run(
                         "MATCH (p:Person {id: $pid}), (e:Evidence {id: $eid}) "
