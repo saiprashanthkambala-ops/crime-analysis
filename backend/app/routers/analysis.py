@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
 from ..security import get_current_user, log_audit
-from ..services.case_analysis import build_case_analysis, build_case_graph, build_llm_context
+from ..services.case_analysis import build_case_analysis, build_llm_context
+from ..services.graph_view import get_case_graph
 from ..services.investigation_agent import run_investigation_tools
 from ..services.nvidia_client import NVIDIAClientError, chat as nvidia_chat, is_configured, stream_chat
 
@@ -115,7 +116,7 @@ def _fast_answer(context: dict, message: str) -> str | None:
 def get_analysis(case_ids: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     requested = [x.strip() for x in (case_ids or "").split(",") if x.strip()]
     context = build_case_analysis(db, user, requested or None)
-    graph = build_case_graph(db, user, requested or None)
+    graph = get_case_graph(db, user, requested or None)
     context.update(graph)
     log_audit(db, user.id, "view_analysis", "case", ",".join(context["case_ids"]))
     return context
@@ -124,7 +125,7 @@ def get_analysis(case_ids: str | None = None, user: User = Depends(get_current_u
 @router.get("/graph")
 def get_analysis_graph(case_ids: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     requested = [x.strip() for x in (case_ids or "").split(",") if x.strip()]
-    return build_case_graph(db, user, requested or None)
+    return get_case_graph(db, user, requested or None)
 
 
 @router.get("/nvidia-status")
