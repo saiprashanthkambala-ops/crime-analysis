@@ -1,186 +1,194 @@
-"""Deterministic graph analysis using Neo4j Graph Data Science (GDS).
-
-The service computes measurable network metrics. It does not infer guilt.
-"""
+"""Deterministic graph analysis that works with Neo4j without requiring GDS."""
 
 from __future__ import annotations
 
-import re
-import uuid
+import math
+from collections import defaultdict, deque
 from typing import Any
 
+import networkx as nx
 from sqlalchemy.orm import Session
 
-from ..models import Event, Person
 from ..security import ensure_case_access
-from .neo4j_service import Neo4jConnectionError, run_read_query, run_write_query
+from .neo4j_service import Neo4jConnectionError, run_read_query
 
-GDS_REL_TYPES = ["CONNECTED_TO", "CALLED", "TRANSFERRED_TO", "ASSOCIATED_WITH"]
+
+REL_TYPES = [
+    "CONNECTED_TO",
+    "CALLED",
+    "TRANSFERRED_TO",
+    "ASSOCIATED_WITH",
+    "TRANSFERRED_MONEY_TO",
+    "USES_VEHICLE",
+    "VISITED",
+]
 
 
 class GraphAnalysisUnavailable(RuntimeError):
-    """Graph analysis is unavailable because GDS/Neo4j is unavailable."""
+    """Graph analysis data cannot be loaded."""
 
 
-def _graph_name(case_id: str, directed: bool) -> str:
-    safe = re.sub(r"[^A-Za-z0-9_]", "_", case_id)[:40]
-    return f"crime_analysis_{safe}_{'directed' if directed else 'undirected'}_{uuid.uuid4().hex[:10]}"
+def _fetch_person_graph(case_ids: list[str]) -> dict[str, Any]:
+    if not case_ids:
+        return {"nodes": [], "edges": []}
 
-
-def _ensure_gds() -> str:
-    try:
-        rows = run_read_query("RETURN gds.version() AS version")
-    except Exception as exc:  # noqa: BLE001
-        raise GraphAnalysisUnavailable("Neo4j Graph Data Science is unavailable.") from exc
-    if not rows or not rows[0].get("version"):
-        raise GraphAnalysisUnavailable("Neo4j Graph Data Science is unavailable.")
-    return str(rows[0]["version"])
-
-
-def _project_case_graph(case_id: str, *, directed: bool) -> tuple[str, dict[str, Any]]:
-    graph_name = _graph_name(case_id, directed)
-    orientation_config = [] if directed else ["*"]
     query = """
-    MATCH (source:Person)
-    WHERE source.case_id = $case_id
-    OPTIONAL MATCH (source)-[r]->(target:Person)
-    WHERE target.case_id = $case_id
-      AND type(r) IN $relationship_types
-    WITH source, target, r
-    WITH gds.graph.project(
-      $graph_name,
-      source,
-      target,
-      {
-        sourceNodeLabels: labels(source),
-        targetNodeLabels: CASE WHEN target IS NULL THEN [] ELSE labels(target) END,
-        relationshipType: CASE WHEN r IS NULL THEN 'REL' ELSE type(r) END,
-        relationshipProperties: CASE
-          WHEN r IS NULL THEN {weight: 1.0}
-          ELSE {weight: CASE WHEN coalesce(r.score, 0.0) > 0.0 THEN r.score ELSE 1.0 END}
-        END
-      },
-      {undirectedRelationshipTypes: $undirected_types}
-    ) AS g
-    RETURN g.graphName AS graphName, g.nodeCount AS nodeCount, g.relationshipCount AS relationshipCount
+    MATCH (p:Person)
+    WHERE p.case_id IN $case_ids
+    OPTIONAL MATCH (p)-[r]-(q:Person)
+    WHERE q.case_id IN $case_ids
+    WITH p, q, r
+    RETURN
+      collect(DISTINCT {
+        id: p.id,
+        name: coalesce(p.name, p.id),
+        case_id: p.case_id
+      }) +
+      collect(DISTINCT CASE WHEN q IS NULL THEN null ELSE {
+        id: q.id,
+        name: coalesce(q.name, q.id),
+        case_id: q.case_id
+      } END) AS nodes,
+      collect(DISTINCT CASE WHEN r IS NULL THEN null ELSE {
+        source: startNode(r).id,
+        target: endNode(r).id,
+        type: type(r),
+        score: coalesce(r.score, 1.0)
+      } END) AS edges
     """
     try:
-        rows = run_read_query(
-            query,
-            {
-                "case_id": case_id,
-                "graph_name": graph_name,
-                "relationship_types": GDS_REL_TYPES,
-                "undirected_types": orientation_config,
-            },
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise GraphAnalysisUnavailable("Could not project the case graph into Neo4j GDS.") from exc
+        rows = run_read_query(query, {"case_ids": case_ids})
+    except Neo4jConnectionError as exc:
+        raise GraphAnalysisUnavailable("Neo4j is unavailable for graph analysis.") from exc
+
     if not rows:
-        raise GraphAnalysisUnavailable("Neo4j GDS did not return a projected graph.")
-    return graph_name, rows[0]
+        return {"nodes": [], "edges": []}
+
+    raw_nodes = [n for n in rows[0].get("nodes", []) if n]
+    raw_edges = [e for e in rows[0].get("edges", []) if e]
+
+    node_map = {n["id"]: n for n in raw_nodes if n.get("id")}
+    edge_rows = []
+    seen_edges = set()
+    for edge in raw_edges:
+        source, target = edge.get("source"), edge.get("target")
+        if not source or not target or source == target:
+            continue
+        if source not in node_map or target not in node_map:
+            continue
+        key = (min(source, target), max(source, target), edge.get("type", "REL"))
+        if key in seen_edges:
+            continue
+        seen_edges.add(key)
+        edge_rows.append(edge)
+
+    return {"nodes": list(node_map.values()), "edges": edge_rows}
 
 
-def _drop_graph(graph_name: str) -> None:
-    try:
-        run_write_query(
-            "CALL gds.graph.drop($graph_name, false) YIELD graphName RETURN graphName",
-            {"graph_name": graph_name},
+def _graph(case_ids: list[str]) -> tuple[nx.Graph, dict[str, dict]]:
+    raw = _fetch_person_graph(case_ids)
+    graph = nx.Graph()
+
+    for node in raw["nodes"]:
+        graph.add_node(
+            node["id"],
+            name=node.get("name") or node["id"],
+            case_id=node.get("case_id"),
         )
-    except Exception:
-        pass
+
+    for edge in raw["edges"]:
+        score = edge.get("score")
+        try:
+            score = float(score)
+        except (TypeError, ValueError):
+            score = 1.0
+        if score <= 0:
+            score = 1.0
+        graph.add_edge(
+            edge["source"],
+            edge["target"],
+            relationship_type=edge.get("type") or "REL",
+            score=score,
+        )
+
+    return graph, {n: graph.nodes[n] for n in graph.nodes}
 
 
-def _named_nodes_query() -> str:
-    return (
-        " RETURN gds.util.asNode(nodeId).id AS entity_id, "
-        "gds.util.asNode(nodeId).name AS name, score "
-        "ORDER BY score DESC, name ASC"
-    )
+def _pagerank_weighted(graph: nx.Graph) -> dict[str, float]:
+    if graph.number_of_nodes() == 0:
+        return {}
+    return nx.pagerank(graph, weight="score", alpha=0.85, max_iter=100)
 
 
-def _centralities(graph_name: str, person_count: int) -> dict[str, Any]:
-    sampling = min(person_count, 100)
-
-    degree = run_read_query(
-        "CALL gds.degree.stream($graph_name, {orientation: 'UNDIRECTED', relationshipWeightProperty: 'weight', logProgress: false}) YIELD nodeId, score"
-        + _named_nodes_query(),
-        {"graph_name": graph_name},
-    )
-
-    betweenness_cfg = "{logProgress: false}"
-    if person_count > 500:
-        betweenness_cfg = "{samplingSize: 100, logProgress: false}"
-
-    betweenness = run_read_query(
-        f"CALL gds.betweenness.stream($graph_name, {betweenness_cfg}) YIELD nodeId, score"
-        + _named_nodes_query(),
-        {"graph_name": graph_name},
-    )
-
-    closeness = run_read_query(
-        "CALL gds.closeness.stream($graph_name, {logProgress: false}) YIELD nodeId, score"
-        + _named_nodes_query(),
-        {"graph_name": graph_name},
-    )
-
-    pagerank = run_read_query(
-        "CALL gds.pageRank.stream($graph_name, {maxIterations: 50, dampingFactor: 0.85, relationshipWeightProperty: 'weight', logProgress: false}) YIELD nodeId, score"
-        + _named_nodes_query(),
-        {"graph_name": graph_name},
-    )
-
-    return {
-        "degree": degree,
-        "betweenness": betweenness,
-        "closeness": closeness,
-        "pagerank": pagerank,
-        "betweenness_mode": "approximate" if person_count > 500 else "exact",
-        "betweenness_sampling_size": sampling if person_count > 500 else None,
-    }
+def _communities(graph: nx.Graph) -> list[dict[str, Any]]:
+    if graph.number_of_nodes() == 0:
+        return []
+    communities = nx.community.louvain_communities(graph, weight="score", seed=42)
+    rows = []
+    for idx, members in enumerate(sorted(communities, key=lambda s: min(s))):
+        for node_id in sorted(members):
+            rows.append({
+                "entity_id": node_id,
+                "name": graph.nodes[node_id].get("name", node_id),
+                "communityId": idx,
+            })
+    return rows
 
 
-def _communities(graph_name: str) -> dict[str, Any]:
-    louvain = run_read_query(
-        "CALL gds.louvain.stream($graph_name, {relationshipWeightProperty: 'weight', logProgress: false}) YIELD nodeId, communityId "
-        "RETURN gds.util.asNode(nodeId).id AS entity_id, gds.util.asNode(nodeId).name AS name, communityId "
-        "ORDER BY communityId ASC, name ASC",
-        {"graph_name": graph_name},
-    )
-    wcc = run_read_query(
-        "CALL gds.wcc.stream($graph_name, {relationshipWeightProperty: 'weight', logProgress: false}) YIELD nodeId, componentId "
-        "RETURN gds.util.asNode(nodeId).id AS entity_id, gds.util.asNode(nodeId).name AS name, componentId "
-        "ORDER BY componentId ASC, name ASC",
-        {"graph_name": graph_name},
-    )
-    return {"louvain": louvain, "connected_components": wcc}
+def _components(graph: nx.Graph) -> list[dict[str, Any]]:
+    rows = []
+    for idx, members in enumerate(sorted(nx.connected_components(graph), key=lambda s: min(s))):
+        for node_id in sorted(members):
+            rows.append({
+                "entity_id": node_id,
+                "name": graph.nodes[node_id].get("name", node_id),
+                "componentId": idx,
+            })
+    return rows
 
 
-def _similarity(graph_name: str) -> list[dict[str, Any]]:
-    return run_read_query(
-        "CALL gds.nodeSimilarity.stream($graph_name, {topK: 5, topN: 50, similarityMetric: 'JACCARD'}) YIELD node1, node2, similarity "
-        "RETURN gds.util.asNode(node1).id AS entity_a, gds.util.asNode(node1).name AS name_a, "
-        "gds.util.asNode(node2).id AS entity_b, gds.util.asNode(node2).name AS name_b, similarity "
-        "ORDER BY similarity DESC, name_a ASC, name_b ASC",
-        {"graph_name": graph_name},
-    )
+def _similarity(graph: nx.Graph) -> list[dict[str, Any]]:
+    rows = []
+    nodes = list(graph.nodes())
+    neighbor_sets = {n: set(graph.neighbors(n)) for n in nodes}
+    for i, a in enumerate(nodes):
+        for b in nodes[i + 1:]:
+            union = neighbor_sets[a] | neighbor_sets[b]
+            if not union:
+                continue
+            value = len(neighbor_sets[a] & neighbor_sets[b]) / len(union)
+            if value <= 0:
+                continue
+            rows.append({
+                "entity_a": a,
+                "name_a": graph.nodes[a].get("name", a),
+                "entity_b": b,
+                "name_b": graph.nodes[b].get("name", b),
+                "similarity": value,
+            })
+    rows.sort(key=lambda x: (-x["similarity"], x["name_a"], x["name_b"]))
+    return rows[:50]
 
 
-def _temporal_summary(db: Session, case_id: str) -> dict[str, Any]:
-    events = db.query(Event).filter(Event.case_id == case_id).all()
+def _temporal_summary(db: Session, case_ids: list[str]) -> dict[str, Any]:
+    if not case_ids:
+        return {"event_count": 0, "timed_event_count": 0, "earliest": None, "latest": None, "sequence_preview": []}
+
+    from ..models import Event
+
+    events = db.query(Event).filter(Event.case_id.in_(case_ids)).all()
     ordered = []
     for event in events:
         if event.observed_date or event.observed_time:
-            ordered.append(
-                {
-                    "event_id": str(event.id),
-                    "type": event.event_type,
-                    "date": event.observed_date,
-                    "time": event.observed_time,
-                    "person_a_id": event.person_a_id,
-                    "person_b_id": event.person_b_id,
-                }
-            )
+            ordered.append({
+                "event_id": str(event.id),
+                "type": event.event_type,
+                "date": event.observed_date,
+                "time": event.observed_time,
+                "person_a_id": event.person_a_id,
+                "person_b_id": event.person_b_id,
+                "case_id": event.case_id,
+            })
     ordered.sort(key=lambda x: ((x["date"] or ""), (x["time"] or ""), x["event_id"]))
     return {
         "event_count": len(events),
@@ -191,151 +199,157 @@ def _temporal_summary(db: Session, case_id: str) -> dict[str, Any]:
     }
 
 
+def _base_metrics(graph: nx.Graph) -> dict[str, dict[str, float]]:
+    degree = {k: float(v) for k, v in nx.degree_centrality(graph).items()}
+    betweenness = {k: float(v) for k, v in nx.betweenness_centrality(graph, normalized=True, weight=None).items()}
+    closeness = {k: float(v) for k, v in nx.closeness_centrality(graph).items()}
+    pagerank = _pagerank_weighted(graph)
+    return {
+        "degree": degree,
+        "betweenness": betweenness,
+        "closeness": closeness,
+        "pagerank": pagerank,
+    }
+
+
+def _metric_rows(graph: nx.Graph, scores: dict[str, float]) -> list[dict[str, Any]]:
+    rows = [
+        {
+            "entity_id": node_id,
+            "name": graph.nodes[node_id].get("name", node_id),
+            "score": float(score),
+        }
+        for node_id, score in scores.items()
+    ]
+    rows.sort(key=lambda r: (-r["score"], r["name"]))
+    return rows
+
+
+def _combined(graph: nx.Graph, metrics: dict[str, dict[str, float]], communities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    community_map = {r["entity_id"]: r["communityId"] for r in communities}
+    rows = []
+    for node_id in graph.nodes:
+        rows.append({
+            "entity_id": node_id,
+            "name": graph.nodes[node_id].get("name", node_id),
+            "degree": metrics["degree"].get(node_id, 0.0),
+            "betweenness": metrics["betweenness"].get(node_id, 0.0),
+            "closeness": metrics["closeness"].get(node_id, 0.0),
+            "pagerank": metrics["pagerank"].get(node_id, 0.0),
+            "community_id": community_map.get(node_id),
+        })
+    rows.sort(key=lambda x: (-x["pagerank"], -x["betweenness"], -x["degree"], x["name"]))
+    return rows[:50]
+
+
+def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
+    clean_ids = [x.strip() for x in case_ids if x and x.strip()]
+    if not clean_ids:
+        return {
+            "case_ids": [],
+            "engine": "networkx-local",
+            "entity_count": 0,
+            "edge_count": 0,
+            "metrics": {},
+            "ranked_people": [],
+            "community_sizes": {},
+            "temporal": _temporal_summary(db, []),
+        }
+
+    for cid in clean_ids:
+        ensure_case_access(db, user, cid)
+
+    graph, _ = _graph(clean_ids)
+    metrics = _base_metrics(graph)
+    communities = _communities(graph)
+    components = _components(graph)
+    similarities = _similarity(graph)
+
+    community_sizes: dict[int, int] = defaultdict(int)
+    for row in communities:
+        community_sizes[row["communityId"]] += 1
+
+    return {
+        "case_ids": clean_ids,
+        "engine": "networkx-local",
+        "gds_version": None,
+        "entity_count": graph.number_of_nodes(),
+        "edge_count": graph.number_of_edges(),
+        "metrics": {
+            "degree_centrality": _metric_rows(graph, metrics["degree"]),
+            "betweenness_centrality": _metric_rows(graph, metrics["betweenness"]),
+            "closeness_centrality": _metric_rows(graph, metrics["closeness"]),
+            "pagerank": _metric_rows(graph, metrics["pagerank"]),
+            "pagerank_directed": [],
+            "louvain_communities": communities,
+            "connected_components": components,
+            "node_similarity": similarities,
+        },
+        "ranked_people": _combined(graph, metrics, communities),
+        "community_sizes": dict(community_sizes),
+        "temporal": _temporal_summary(db, clean_ids),
+        "betweenness_mode": "exact",
+        "betweenness_sampling_size": None,
+    }
+
+
+def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
+    return analyze_cases(db, user, [case_id])
+
+
 def _multi_hop(case_id: str, person_id: str, max_hops: int) -> list[dict[str, Any]]:
     hops = max(1, min(max_hops, 5))
     query = f"""
     MATCH (source:Person {{id: $person_id}})
     WHERE source.case_id = $case_id
-    MATCH p=(source)-[:CONNECTED_TO|CALLED|TRANSFERRED_TO|ASSOCIATED_WITH*1..{hops}]-(target:Person)
+    MATCH p=(source)-[*1..{hops}]-(target:Person)
     WHERE target.case_id = $case_id AND target.id <> source.id
     WITH target, min(length(p)) AS hops
     RETURN target.id AS entity_id, target.name AS name, hops
     ORDER BY hops ASC, name ASC
     LIMIT 100
     """
-    return run_read_query(query, {"case_id": case_id, "person_id": person_id})
+    try:
+        return run_read_query(query, {"case_id": case_id, "person_id": person_id})
+    except Neo4jConnectionError as exc:
+        raise GraphAnalysisUnavailable("Neo4j is unavailable.") from exc
+
+
+def multi_hop_for_person(db: Session, user, case_id: str, person_id: str, max_hops: int = 3) -> dict[str, Any]:
+    ensure_case_access(db, user, case_id)
+    return {
+        "case_id": case_id,
+        "person_id": person_id,
+        "max_hops": max(1, min(max_hops, 5)),
+        "neighbors": _multi_hop(case_id, person_id, max_hops),
+    }
 
 
 def _shortest_path(case_id: str, source_person_id: str, target_person_id: str) -> dict[str, Any]:
-    graph_name, _ = _project_case_graph(case_id, directed=True)
+    query = """
+    MATCH (s:Person {id: $source_id}), (t:Person {id: $target_id})
+    WHERE s.case_id = $case_id AND t.case_id = $case_id
+    MATCH p=shortestPath((s)-[*..20]-(t))
+    RETURN [n IN nodes(p) | {id: n.id, name: coalesce(n.name, n.id)}] AS nodes,
+           length(p) AS hops
+    """
     try:
         rows = run_read_query(
-            """
-            MATCH (s:Person {id: $source_id}), (t:Person {id: $target_id})
-            WHERE s.case_id = $case_id AND t.case_id = $case_id
-            CALL gds.shortestPath.dijkstra.stream(
-              $graph_name,
-              {sourceNode: s, targetNode: t}
-            )
-            YIELD totalCost, nodeIds, path
-            RETURN totalCost,
-                   [nodeId IN nodeIds | {
-                     id: gds.util.asNode(nodeId).id,
-                     name: gds.util.asNode(nodeId).name
-                   }] AS nodes
-            """,
+            query,
             {
-                "graph_name": graph_name,
                 "source_id": source_person_id,
                 "target_id": target_person_id,
                 "case_id": case_id,
             },
         )
-        return rows[0] if rows else {"totalCost": None, "nodes": []}
-    finally:
-        _drop_graph(graph_name)
-
-
-def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
-    ensure_case_access(db, user, case_id)
-
-    try:
-        people = len(
-            run_read_query(
-                "MATCH (p:Person) WHERE p.case_id = $case_id RETURN p.id AS id",
-                {"case_id": case_id},
-            )
-        )
     except Neo4jConnectionError as exc:
-        raise GraphAnalysisUnavailable("Neo4j is unavailable for graph analysis.") from exc
-
-    version = _ensure_gds()
-    undirected_name, projection = _project_case_graph(case_id, directed=False)
-    directed_name = None
-
-    try:
-        metrics = _centralities(undirected_name, people)
-        communities = _communities(undirected_name)
-        similarities = _similarity(undirected_name)
-
-        directed_name, _ = _project_case_graph(case_id, directed=True)
-        directed_pagerank = run_read_query(
-            "CALL gds.pageRank.stream($graph_name, {maxIterations: 50, dampingFactor: 0.85, relationshipWeightProperty: 'weight', logProgress: false}) YIELD nodeId, score "
-            "RETURN gds.util.asNode(nodeId).id AS entity_id, gds.util.asNode(nodeId).name AS name, score "
-            "ORDER BY score DESC, name ASC",
-            {"graph_name": directed_name},
-        )
-        metrics["pagerank_directed"] = directed_pagerank
-    finally:
-        _drop_graph(undirected_name)
-        if directed_name:
-            _drop_graph(directed_name)
-
-    degree_map = {row["entity_id"]: row["score"] for row in metrics["degree"]}
-    between_map = {row["entity_id"]: row["score"] for row in metrics["betweenness"]}
-    close_map = {row["entity_id"]: row["score"] for row in metrics["closeness"]}
-    pr_map = {row["entity_id"]: row["score"] for row in metrics["pagerank"]}
-    community_map = {row["entity_id"]: row["communityId"] for row in communities["louvain"]}
-
-    combined = []
-    for row in metrics["degree"]:
-        eid = row["entity_id"]
-        combined.append(
-            {
-                "entity_id": eid,
-                "name": row.get("name") or eid,
-                "degree": degree_map.get(eid, 0.0),
-                "betweenness": between_map.get(eid, 0.0),
-                "closeness": close_map.get(eid, 0.0),
-                "pagerank": pr_map.get(eid, 0.0),
-                "community_id": community_map.get(eid),
-            }
-        )
-    combined.sort(key=lambda x: (x["pagerank"], x["betweenness"], x["degree"]), reverse=True)
-
-    temporal = _temporal_summary(db, case_id)
-    community_sizes: dict[int, int] = {}
-    for row in communities["louvain"]:
-        cid = row["communityId"]
-        community_sizes[cid] = community_sizes.get(cid, 0) + 1
-
-    return {
-        "case_id": case_id,
-        "gds_version": version,
-        "projection": projection,
-        "entity_count": people,
-        "metrics": {
-            "degree_centrality": metrics["degree"],
-            "betweenness_centrality": metrics["betweenness"],
-            "closeness_centrality": metrics["closeness"],
-            "pagerank": metrics["pagerank"],
-            "pagerank_directed": metrics["pagerank_directed"],
-            "louvain_communities": communities["louvain"],
-            "connected_components": communities["connected_components"],
-            "node_similarity": similarities,
-        },
-        "ranked_people": combined[:50],
-        "community_sizes": community_sizes,
-        "temporal": temporal,
-        "betweenness_mode": metrics["betweenness_mode"],
-        "betweenness_sampling_size": metrics["betweenness_sampling_size"],
-    }
+        raise GraphAnalysisUnavailable("Neo4j is unavailable.") from exc
+    if not rows:
+        return {"hops": None, "nodes": []}
+    return rows[0]
 
 
-def multi_hop_for_person(db: Session, user, case_id: str, person_id: str, max_hops: int = 3) -> dict[str, Any]:
-    ensure_case_access(db, user, case_id)
-    rows = _multi_hop(case_id, person_id, max_hops)
-    return {
-        "case_id": case_id,
-        "person_id": person_id,
-        "max_hops": max(1, min(max_hops, 5)),
-        "neighbors": rows,
-    }
-
-
-def shortest_path_for_people(
-    db: Session, user, case_id: str, source_person_id: str, target_person_id: str
-) -> dict[str, Any]:
+def shortest_path_for_people(db: Session, user, case_id: str, source_person_id: str, target_person_id: str) -> dict[str, Any]:
     ensure_case_access(db, user, case_id)
     return {
         "case_id": case_id,
