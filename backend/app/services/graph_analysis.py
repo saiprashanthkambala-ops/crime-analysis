@@ -212,6 +212,7 @@ def _shortest_path(case_id: str, source_person_id: str, target_person_id: str) -
         rows = run_read_query(
             """
             MATCH (s:Person {id: $source_id}), (t:Person {id: $target_id})
+            WHERE s.case_id = $case_id AND t.case_id = $case_id
             CALL gds.shortestPath.dijkstra.stream(
               $graph_name,
               {sourceNode: s, targetNode: t}
@@ -227,6 +228,7 @@ def _shortest_path(case_id: str, source_person_id: str, target_person_id: str) -
                 "graph_name": graph_name,
                 "source_id": source_person_id,
                 "target_id": target_person_id,
+                "case_id": case_id,
             },
         )
         return rows[0] if rows else {"totalCost": None, "nodes": []}
