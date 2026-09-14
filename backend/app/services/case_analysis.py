@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..models import Case, Entity, Evidence, Event, Person, Relationship, person_entities
 from ..security import ensure_case_access
 from .neo4j_service import Neo4jConnectionError, run_read_query
+from .graph_sync import sync_case_to_neo4j
 
 
 def _case_ids(db: Session, user, requested: list[str] | None) -> list[str]:
@@ -255,11 +256,18 @@ def _sql_graph_fallback(db: Session, case_ids: list[str]) -> dict:
 
 
 def build_case_graph(db: Session, user, requested_case_ids: list[str] | None = None) -> dict:
-    """Load the Neo4j graph; transparently fall back to SQL for visualization."""
+    """Synchronize and load the Neo4j graph, with a SQL fallback."""
     case_ids = _case_ids(db, user, requested_case_ids)
     graph = {"nodes": [], "edges": []}
     if not case_ids:
         return {"case_ids": [], "graph": graph, "graph_status": "no_cases"}
+
+    sync_errors = []
+    for case_id in case_ids:
+        try:
+            sync_case_to_neo4j(db, case_id)
+        except Exception as exc:
+            sync_errors.append(f"{case_id}: {type(exc).__name__}")
 
     try:
         rows = run_read_query(
@@ -301,7 +309,21 @@ def build_case_graph(db: Session, user, requested_case_ids: list[str] | None = N
         )
         if rows:
             graph = {"nodes": rows[0].get("nodes", []), "edges": rows[0].get("edges", [])}
-        return {"case_ids": case_ids, "graph": graph, "graph_status": "connected"}
+        if graph["nodes"]:
+            return {
+                "case_ids": case_ids,
+                "graph": graph,
+                "graph_status": "connected",
+                "graph_sync": {"attempted": len(case_ids), "errors": sync_errors},
+            }
+
+        graph = _sql_graph_fallback(db, case_ids)
+        return {
+            "case_ids": case_ids,
+            "graph": graph,
+            "graph_status": "sql_fallback_empty_neo4j",
+            "graph_sync": {"attempted": len(case_ids), "errors": sync_errors},
+        }
     except Neo4jConnectionError as exc:
         graph = _sql_graph_fallback(db, case_ids)
         return {
@@ -309,4 +331,5 @@ def build_case_graph(db: Session, user, requested_case_ids: list[str] | None = N
             "graph": graph,
             "graph_status": "sql_fallback",
             "graph_error": str(exc),
+            "graph_sync": {"attempted": len(case_ids), "errors": sync_errors},
         }
