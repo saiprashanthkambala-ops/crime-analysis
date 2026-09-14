@@ -25,6 +25,7 @@ export default function Analysis() {
   const [nvidiaReady, setNvidiaReady] = useState(null)
   const [graphAnalysis, setGraphAnalysis] = useState(null)
   const [graphAnalysisLoading, setGraphAnalysisLoading] = useState(false)
+  const [graphAnalysisCaseId, setGraphAnalysisCaseId] = useState('')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [message, setMessage] = useState('')
@@ -52,9 +53,11 @@ export default function Analysis() {
   )
 
   const toggleCase = (id) => {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    )
+    setSelected((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      if (!next.includes(graphAnalysisCaseId)) setGraphAnalysisCaseId(next[0] || '')
+      return next
+    })
     setGraphAnalysis(null)
   }
 
@@ -87,7 +90,17 @@ export default function Analysis() {
 
       setAnalysis(data.analysis || '')
       setContext(data.context || null)
-
+      const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
+      if (firstGraphCase) {
+        setGraphAnalysisCaseId(firstGraphCase)
+        setGraphAnalysisLoading(true)
+        void withTimeout('/graph-analysis/' + encodeURIComponent(firstGraphCase))
+          .then((graphData) => setGraphAnalysis(graphData))
+          .catch((graphError) => {
+            if (graphError.name !== 'AbortError') setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + graphError.message)
+          })
+          .finally(() => setGraphAnalysisLoading(false))
+      }
       // Graph loading is independent of AI generation.
       void refreshGraph()
     } catch (e) {
@@ -101,15 +114,16 @@ export default function Analysis() {
     }
   }
 
-  const runGraphAnalysis = async () => {
-    if (selected.length !== 1) {
-      setErr('Select exactly one case to run graph analysis.')
+  const runGraphAnalysis = async (requestedCaseId = '') => {
+    const caseId = requestedCaseId || graphAnalysisCaseId || selected[0] || ''
+    if (!caseId) {
+      setErr('Select a case to run graph analysis.')
       return
     }
     setErr('')
     setGraphAnalysisLoading(true)
     try {
-      const data = await withTimeout('/graph-analysis/' + encodeURIComponent(selected[0]))
+      const data = await withTimeout('/graph-analysis/' + encodeURIComponent(caseId))
       setGraphAnalysis(data)
     } catch (e) {
       setErr(
@@ -151,7 +165,7 @@ export default function Analysis() {
             )
           )
         },
-        { timeoutMs: 90000 }
+        { timeoutMs: 90000, history }
       )
 
       if (data.context) setContext(data.context)
@@ -238,10 +252,26 @@ export default function Analysis() {
             {generating ? 'Generating…' : 'Generate Analysis'}
           </button>
 
+          {selected.length > 1 && (
+            <select
+              className="select-inline"
+              value={graphAnalysisCaseId || selected[0] || ''}
+              onChange={(e) => {
+                setGraphAnalysisCaseId(e.target.value)
+                setGraphAnalysis(null)
+              }}
+            >
+              {selected.map((caseId) => (
+                <option key={caseId} value={caseId}>
+                  Graph metrics: {caseId}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             className="btn"
-            disabled={selected.length !== 1 || graphAnalysisLoading}
-            onClick={runGraphAnalysis}
+            disabled={!selected.length || graphAnalysisLoading}
+            onClick={() => runGraphAnalysis()}
           >
             {graphAnalysisLoading ? 'Running Graph Analysis…' : 'Run Graph Analysis'}
           </button>
