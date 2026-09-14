@@ -12,6 +12,7 @@ from ..database import get_db
 from ..models import User
 from ..security import get_current_user, log_audit
 from ..services.case_analysis import build_case_analysis, build_case_graph, build_llm_context
+from ..services.investigation_agent import run_investigation_tools
 from ..services.nvidia_client import NVIDIAClientError, chat as nvidia_chat, is_configured, stream_chat
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -174,6 +175,27 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
     return {"analysis": content, "context": context}
 
 
+@router.get("/suspicious")
+def suspicious_relationships(
+    case_ids: str | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    requested = [x.strip() for x in (case_ids or "").split(",") if x.strip()]
+    context = build_case_analysis(db, user, requested or None)
+    candidates = sorted(
+        context.get("relationships", []),
+        key=lambda r: (r.get("score") or 0),
+        reverse=True,
+    )[:25]
+    return {
+        "case_ids": context["case_ids"],
+        "method": "relationship_score",
+        "candidates": candidates,
+        "note": "Candidates prioritize recorded relationship strength. They are not findings of guilt.",
+    }
+
+
 @router.post("/chat")
 def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     context = build_case_analysis(db, user, body.case_ids or None)
@@ -194,12 +216,17 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
         log_audit(db, user.id, "analysis_chat_fast_path", "case", ",".join(context["case_ids"]))
         return {"answer": fast_answer, "context": context, "mode": "deterministic"}
 
+    tool_result = run_investigation_tools(db, user, context["case_ids"], body.message)
     messages = _llm_messages(
         context,
-        "Answer the investigator's question from the supplied case data.",
+        "Answer the investigator's question. The deterministic investigation tool has already produced the observations below. Use those observations as the source of truth; do not invent additional graph values.",
         body.message,
         body.history,
     )
+    messages.append({
+        "role": "user",
+        "content": json.dumps({"tool_name": tool_result.get("tool"), "tool_status": tool_result.get("status"), "tool_observations": tool_result.get("observations"), "tool_note": tool_result.get("note")}, default=str, ensure_ascii=False),
+    })
 
     def event_stream():
         try:
