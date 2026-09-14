@@ -1,6 +1,6 @@
 """Neo4j schema initialization for the Phase 1 graph store."""
 
-from ..services.neo4j_service import run_write_query
+from ..services.neo4j_service import get_driver
 
 
 CONSTRAINTS = [
@@ -17,7 +17,9 @@ CONSTRAINTS = [
 
 
 def initialize_schema() -> dict:
-    """Create required uniqueness constraints and return a compact result."""
-    for query in CONSTRAINTS:
-        run_write_query(query)
+    """Create required uniqueness constraints."""
+    driver = get_driver()
+    with driver.session() as session:
+        for query in CONSTRAINTS:
+            session.run(query).consume()
     return {"constraints_created": len(CONSTRAINTS)}
