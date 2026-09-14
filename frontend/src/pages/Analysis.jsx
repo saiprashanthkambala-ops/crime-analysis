@@ -22,6 +22,7 @@ export default function Analysis() {
   const [analysis, setAnalysis] = useState('')
   const [context, setContext] = useState(null)
   const [graph, setGraph] = useState({ nodes: [], edges: [] })
+  const [syncStatus, setSyncStatus] = useState(null)
   const [graphStatus, setGraphStatus] = useState('not_loaded')
   const [nvidiaReady, setNvidiaReady] = useState(null)
   const [graphAnalysis, setGraphAnalysis] = useState(null)
@@ -44,7 +45,10 @@ export default function Analysis() {
       .then(([items, status]) => {
         setCases(items)
         setNvidiaReady(status)
-        if (items.length === 1) setSelected([items[0].id])
+        if (items.length === 1) {
+          setSelected([items[0].id])
+          void refreshSyncStatus(items[0].id)
+        }
       })
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false))
@@ -62,6 +66,7 @@ export default function Analysis() {
       return next
     })
     setGraphAnalysis(null)
+    void refreshSyncStatus(selected.includes(id) ? '' : id)
   }
 
   const refreshSuspicious = async () => {
@@ -101,6 +106,34 @@ export default function Analysis() {
           ? 'Graph generation timed out. Check Neo4j connectivity and the selected case data.'
           : e.message
       )
+    }
+  }
+
+  const refreshSyncStatus = async (caseId = '') => {
+    const id = caseId || selected[0] || ''
+    if (!id) {
+      setSyncStatus(null)
+      return
+    }
+    try {
+      const data = await withTimeout('/graph/sync-status/' + encodeURIComponent(id))
+      setSyncStatus(data)
+    } catch (e) {
+      if (e.name !== 'AbortError') setErr(e.message)
+    }
+  }
+
+  const resyncCase = async () => {
+    const id = graphAnalysisCaseId || selected[0] || ''
+    if (!id) return
+    setErr('')
+    try {
+      await withTimeout('/graph/sync/' + encodeURIComponent(id), { method: 'POST' })
+      await refreshSyncStatus(id)
+      await refreshGraph()
+      await runGraphAnalysis(id)
+    } catch (e) {
+      setErr(e.message)
     }
   }
 
@@ -294,6 +327,19 @@ export default function Analysis() {
                 <span className="badge status-badge">{c.status}</span>
               </label>
             ))}
+          </div>
+        )}
+
+        {syncStatus && (
+          <div className="info-box small">
+            Neo4j sync: <strong>{syncStatus.status}</strong>
+            {syncStatus.synced_at ? ` · Last sync: ${new Date(syncStatus.synced_at).toLocaleString()}` : ''}
+            {syncStatus.error ? ` · ${syncStatus.error}` : ''}
+            {syncStatus.status !== 'SYNCED' && (
+              <button className="btn" type="button" onClick={resyncCase} style={{ marginLeft: 8 }}>
+                Sync Case to Neo4j
+              </button>
+            )}
           </div>
         )}
 
