@@ -1,6 +1,7 @@
 """Case analysis workspace and evidence-grounded NVIDIA chat."""
 
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
 from ..security import get_current_user, log_audit
-from ..services.case_analysis import build_case_analysis, build_case_graph
+from ..services.case_analysis import build_case_analysis, build_case_graph, build_llm_context
 from ..services.nvidia_client import NVIDIAClientError, chat as nvidia_chat, is_configured, stream_chat
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -31,30 +32,31 @@ def _llm_messages(context: dict, task: str, question: str | None = None):
         "Use ONLY the supplied case data. Do not invent facts, dates, people, "
         "evidence, relationships, or scores. Relationship scores are evidence-strength "
         "signals, not probabilities of guilt. Do not declare a person guilty or innocent. "
-        "Clearly distinguish observed facts from interpretation. Keep responses concise."
+        "Clearly distinguish observed facts from interpretation. "
+        "Return clean Markdown with headings and bullet lists when appropriate."
     )
     payload = {
         "task": task,
-        "cases": context["cases"],
-        "people": context["people"],
-        "entities": context["entities"],
-        "relationships": context["relationships"],
-        "evidence": context["evidence"],
+        "case_data": build_llm_context(context),
     }
     if question:
         payload["investigator_question"] = question
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": json.dumps(payload, default=str)},
+        {"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)},
     ]
 
 
+def _is_greeting(message: str) -> bool:
+    normalized = re.sub(r"[^a-z]", "", message.lower())
+    return normalized in {
+        "hi", "hii", "hiii", "hello", "hey", "heyy", "yo",
+        "goodmorning", "goodevening",
+    }
+
+
 @router.get("")
-def get_analysis(
-    case_ids: str | None = None,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def get_analysis(case_ids: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     requested = [x.strip() for x in (case_ids or "").split(",") if x.strip()]
     context = build_case_analysis(db, user, requested or None)
     graph = build_case_graph(db, user, requested or None)
@@ -64,11 +66,7 @@ def get_analysis(
 
 
 @router.get("/graph")
-def get_analysis_graph(
-    case_ids: str | None = None,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def get_analysis_graph(case_ids: str | None = None, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     requested = [x.strip() for x in (case_ids or "").split(",") if x.strip()]
     return build_case_graph(db, user, requested or None)
 
@@ -78,20 +76,18 @@ def nvidia_status(user: User = Depends(get_current_user)):
     return {
         "configured": is_configured(),
         "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
-        "message": "NVIDIA API key is configured on the backend." if is_configured()
-                   else "NVIDIA API key is missing from the backend environment.",
+        "message": "NVIDIA API key is configured on the backend."
+        if is_configured()
+        else "NVIDIA API key is missing from the backend environment.",
     }
 
 
 @router.get("/nvidia-ping")
 def nvidia_ping(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Small provider-only smoke test, independent of case data and Neo4j."""
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
     try:
-        result = nvidia_chat([
-            {"role": "user", "content": "Reply with exactly: NVIDIA_OK"}
-        ])
+        result = nvidia_chat([{"role": "user", "content": "Reply with exactly: NVIDIA_OK"}])
         content = result.choices[0].message.content or ""
         log_audit(db, user.id, "nvidia_ping", "system", None)
         return {"ok": True, "model": "nvidia/nemotron-3.5-lightning-30b-a3b", "response": content}
@@ -102,11 +98,7 @@ def nvidia_ping(user: User = Depends(get_current_user), db: Session = Depends(ge
 
 
 @router.post("/generate")
-def generate_analysis(
-    body: AnalysisRequest,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     context = build_case_analysis(db, user, body.case_ids or None)
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
@@ -122,20 +114,25 @@ def generate_analysis(
     except NVIDIAClientError as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
     except Exception:
-        raise HTTPException(status_code=502, detail="NVIDIA analysis request failed. Check backend logs for the provider response.")
+        raise HTTPException(status_code=502, detail="NVIDIA analysis request failed. Check backend logs.")
     log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
     return {"analysis": content, "context": context}
 
 
 @router.post("/chat")
-def chat_endpoint(
-    body: ChatRequest,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     context = build_case_analysis(db, user, body.case_ids or None)
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
+
+    if _is_greeting(body.message):
+        answer = (
+            "Hello. I’m ready to analyze the selected case data. "
+            "Ask me about relationships, evidence, entities, network structure, "
+            "or suspicious connection candidates."
+        )
+        log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
+        return {"answer": answer, "context": context}
 
     messages = _llm_messages(
         context,
@@ -146,17 +143,13 @@ def chat_endpoint(
     def event_stream():
         try:
             for token in stream_chat(messages):
-                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False) + "
-"
+                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False) + "\n"
             log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
-            yield json.dumps({"type": "done", "context": context}, default=str) + "
-"
+            yield json.dumps({"type": "done", "context": context}, default=str) + "\n"
         except NVIDIAClientError as exc:
-            yield json.dumps({"type": "error", "detail": str(exc)}) + "
-"
+            yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
         except Exception:
-            yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}) + "
-"
+            yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}) + "\n"
 
     return StreamingResponse(
         event_stream(),
