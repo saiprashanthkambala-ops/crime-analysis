@@ -226,9 +226,13 @@ def reconcile_case_in_neo4j(db: Session, case_id: str) -> dict:
     if not case:
         raise ValueError("Case not found")
 
+    supported_entity_types = ["PHONE", "VEHICLE", "BANK_ACCOUNT", "LOCATION"]
     sql_counts = {
         "documents": db.query(Document).filter(Document.case_id == case_id).count(),
-        "entities": db.query(Entity).filter(Entity.case_id == case_id).count(),
+        "entities": db.query(Entity).filter(
+            Entity.case_id == case_id,
+            Entity.entity_type.in_(supported_entity_types),
+        ).count(),
         "events": db.query(Event).filter(Event.case_id == case_id).count(),
         "evidence": db.query(Evidence).filter(Evidence.case_id == case_id).count(),
     }
@@ -266,7 +270,8 @@ def reconcile_case_in_neo4j(db: Session, case_id: str) -> dict:
         MATCH (c:Case {id: $case_id})
         OPTIONAL MATCH (p:Person)-[:INVOLVED_IN]->(c)
         WITH c, count(DISTINCT p) AS persons
-        OPTIONAL MATCH (e:Entity)-[:BELONGS_TO]->(c)
+        OPTIONAL MATCH (e)-[:BELONGS_TO]->(c)
+        WHERE e:Phone OR e:Vehicle OR e:BankAccount OR e:Location
         WITH c, persons, count(DISTINCT e) AS entities
         OPTIONAL MATCH (d:Document)-[:BELONGS_TO]->(c)
         WITH c, persons, entities, count(DISTINCT d) AS documents
