@@ -5,7 +5,7 @@ import json
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import Case, Entity, Evidence, Event, Person, Relationship
+from ..models import Case, Entity, Evidence, Event, Person, Relationship, person_entities
 from ..security import ensure_case_access
 from .neo4j_service import Neo4jConnectionError, run_read_query
 
@@ -131,11 +131,7 @@ def build_llm_context(
     max_evidence: int = 25,
     max_chars: int = 12000,
 ) -> dict:
-    """Create a small deterministic context for the hosted model.
-
-    The UI still receives the full case context; this function only controls
-    what is sent to NVIDIA.
-    """
+    """Create a small deterministic context for the hosted model."""
     compact = {
         "cases": context.get("cases", [])[:max_cases],
         "counts": context.get("counts", {}),
@@ -164,8 +160,102 @@ def build_llm_context(
     return compact
 
 
+def _sql_graph_fallback(db: Session, case_ids: list[str]) -> dict:
+    """Build a small graph directly from SQL when Neo4j is unavailable."""
+    if not case_ids:
+        return {"nodes": [], "edges": []}
+
+    entities = db.query(Entity).filter(Entity.case_id.in_(case_ids)).limit(250).all()
+    events = db.query(Event).filter(Event.case_id.in_(case_ids)).limit(250).all()
+    evidence = db.query(Evidence).filter(Evidence.case_id.in_(case_ids)).limit(250).all()
+    relationships = (
+        db.query(Relationship)
+        .filter(Relationship.person_a_id.isnot(None), Relationship.person_b_id.isnot(None))
+        .limit(500)
+        .all()
+    )
+
+    person_ids = set()
+    for obj in [*events, *evidence]:
+        person_ids.update(x for x in (obj.person_a_id, obj.person_b_id) if x)
+    for rel in relationships:
+        person_ids.update(x for x in (rel.person_a_id, rel.person_b_id) if x)
+
+    people = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+    nodes = []
+    edges = []
+    seen_nodes = set()
+
+    def add_node(node_id, label, node_type):
+        key = str(node_id)
+        if key in seen_nodes:
+            return
+        seen_nodes.add(key)
+        nodes.append({"data": {"id": key, "label": label or key, "type": node_type}})
+
+    for case_id in case_ids:
+        case = db.get(Case, case_id)
+        add_node(case_id, case.name if case else case_id, "case")
+
+    for person in people:
+        add_node(person.id, person.name, "person")
+        for ent in getattr(person, "entities", [])[:20]:
+            if ent.case_id not in case_ids:
+                continue
+            ent_id = "entity:" + str(ent.id)
+            add_node(ent_id, ent.original_value or ent.normalized_value, str(ent.entity_type or "entity").lower())
+            edges.append({
+                "data": {
+                    "id": f"PE:{person.id}:{ent.id}",
+                    "source": str(person.id),
+                    "target": ent_id,
+                    "label": str(ent.entity_type or "ENTITY"),
+                    "type": "ASSOCIATED_WITH",
+                }
+            })
+
+    for rel in sorted(relationships, key=lambda x: (x.score or 0), reverse=True)[:200]:
+        if rel.person_a_id not in seen_nodes and rel.person_b_id not in seen_nodes:
+            continue
+        edges.append({
+            "data": {
+                "id": "REL:" + str(rel.id),
+                "source": str(rel.person_a_id),
+                "target": str(rel.person_b_id),
+                "label": f"{rel.strength or 'RELATIONSHIP'} ({(rel.score or 0):.3f})",
+                "type": "CONNECTED_TO",
+                "score": rel.score,
+                "strength": rel.strength,
+            }
+        })
+
+    for event in events:
+        if event.person_a_id and event.person_b_id and event.person_a_id in seen_nodes and event.person_b_id in seen_nodes:
+            add_node(event.person_a_id, next((p.name for p in people if p.id == event.person_a_id), event.person_a_id), "person")
+            add_node(event.person_b_id, next((p.name for p in people if p.id == event.person_b_id), event.person_b_id), "person")
+            event_type = (event.event_type or "EVENT").upper()
+            edges.append({
+                "data": {
+                    "id": "EVENT:" + str(event.id),
+                    "source": str(event.person_a_id),
+                    "target": str(event.person_b_id),
+                    "label": event_type,
+                    "type": "CALLED" if event_type == "CALL" else "ASSOCIATED_WITH",
+                    "date": event.observed_date,
+                    "time": event.observed_time,
+                }
+            })
+
+    # Deduplicate edges by ID.
+    unique_edges = {}
+    for edge in edges:
+        unique_edges[edge["data"]["id"]] = edge
+
+    return {"nodes": nodes[:500], "edges": list(unique_edges.values())[:800]}
+
+
 def build_case_graph(db: Session, user, requested_case_ids: list[str] | None = None) -> dict:
-    """Load the Neo4j graph separately so it cannot block the LLM request."""
+    """Load the Neo4j graph; transparently fall back to SQL for visualization."""
     case_ids = _case_ids(db, user, requested_case_ids)
     graph = {"nodes": [], "edges": []}
     if not case_ids:
@@ -213,9 +303,10 @@ def build_case_graph(db: Session, user, requested_case_ids: list[str] | None = N
             graph = {"nodes": rows[0].get("nodes", []), "edges": rows[0].get("edges", [])}
         return {"case_ids": case_ids, "graph": graph, "graph_status": "connected"}
     except Neo4jConnectionError as exc:
+        graph = _sql_graph_fallback(db, case_ids)
         return {
             "case_ids": case_ids,
             "graph": graph,
-            "graph_status": "unavailable",
+            "graph_status": "sql_fallback",
             "graph_error": str(exc),
         }
