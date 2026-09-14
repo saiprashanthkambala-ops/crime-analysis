@@ -10,6 +10,8 @@ const NODE_STYLE = {
   location: { color: '#fb7185', shape: 'hexagon' },
   case: { color: '#f472b6', shape: 'round-rectangle' },
   event: { color: '#94a3b8', shape: 'triangle' },
+  evidence: { color: '#f97316', shape: 'rectangle' },
+  document: { color: '#64748b', shape: 'round-rectangle' },
 }
 
 export default function NetworkGraph({ data, onSelectNode }) {
@@ -73,6 +75,14 @@ export default function NetworkGraph({ data, onSelectNode }) {
         {
           selector: 'node[type="event"]',
           style: { 'background-color': '#94a3b8', shape: 'triangle' },
+        },
+        {
+          selector: 'node[type="evidence"]',
+          style: { 'background-color': '#f97316', shape: 'rectangle' },
+        },
+        {
+          selector: 'node[type="document"]',
+          style: { 'background-color': '#64748b', shape: 'round-rectangle' },
         },
         {
           selector: 'edge',
