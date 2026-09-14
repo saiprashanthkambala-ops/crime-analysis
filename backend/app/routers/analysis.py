@@ -216,7 +216,7 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
         log_audit(db, user.id, "analysis_chat_fast_path", "case", ",".join(context["case_ids"]))
         return {"answer": fast_answer, "context": context, "mode": "deterministic"}
 
-    tool_result = run_investigation_tools(db, user, context["case_ids"], body.message)
+    tool_result = run_investigation_tools(db, user, context["case_ids"], body.message, context)
     messages = _llm_messages(
         context,
         "Answer the investigator's question. The deterministic investigation tool has already produced the observations below. Use those observations as the source of truth; do not invent additional graph values.",
