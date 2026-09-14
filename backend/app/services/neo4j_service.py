@@ -104,14 +104,14 @@ def _run_query(query: str, parameters: Optional[dict[str, Any]] = None) -> list[
         return execute(driver)
     except AuthError as exc:
         raise Neo4jConnectionError("Neo4j authentication failed (check NEO4J_USERNAME / NEO4J_PASSWORD).", reason="auth_error", detail=redact_secrets(exc)) from exc
-    except (ServiceUnavailable, SessionExpired, DriverError) as exc:
+    except (ServiceUnavailable, SessionExpired, DriverError, OSError, TimeoutError, ConnectionError) as exc:
         # Aura/cloud connections can be reset while a pooled driver still
         # points at a dead connection. Recreate the driver once and retry.
         logger.warning("Neo4j connection failure; recreating driver once: %s", redact_secrets(exc))
         close_driver()
         try:
             return execute(get_driver())
-        except (ServiceUnavailable, SessionExpired, DriverError) as retry_exc:
+        except (ServiceUnavailable, SessionExpired, DriverError, OSError, TimeoutError, ConnectionError) as retry_exc:
             raise Neo4jConnectionError(
                 "Neo4j connection error after retry.",
                 reason="connection_error",
