@@ -231,7 +231,18 @@ def get_case_graph(db: Session, user, requested_case_ids: list[str] | None = Non
         data: {
           id: coalesce(n.id, n.key),
           label: coalesce(n.name, n.value, n.filename, n.type, n.id, n.key),
-          type: toLower(coalesce(labels(n)[0], "entity")),
+          type: CASE
+            WHEN n:Person THEN "person"
+            WHEN n:Phone THEN "phone"
+            WHEN n:Vehicle THEN "vehicle"
+            WHEN n:BankAccount THEN "account"
+            WHEN n:Location THEN "location"
+            WHEN n:Case THEN "case"
+            WHEN n:Event THEN "event"
+            WHEN n:Evidence THEN "evidence"
+            WHEN n:Document THEN "document"
+            ELSE "entity"
+          END,
           score: n.score,
           strength: n.strength,
           case_id: n.case_id
