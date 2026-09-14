@@ -361,7 +361,7 @@ def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
         case.neo4j_sync_counts = verification["neo4j"]
         db.commit()
         return {**result, "verification": verification}
-    except (Neo4jError, ServiceUnavailable, SessionExpired, DriverError, Neo4jConnectionError) as exc:
+    except (Neo4jError, ServiceUnavailable, SessionExpired, DriverError, OSError, TimeoutError, ConnectionError, Neo4jConnectionError) as exc:
         case = db.get(Case, case_id)
         if case:
             case.neo4j_sync_status = "FAILED"
