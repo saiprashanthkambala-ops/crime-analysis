@@ -3,6 +3,14 @@ import { api } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 
+const REQUEST_TIMEOUT_MS = 95000
+
+function timeoutSignal() {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  return { controller, timer }
+}
+
 export default function Analysis() {
   const [cases, setCases] = useState([])
   const [selected, setSelected] = useState([])
@@ -34,16 +42,23 @@ export default function Analysis() {
   const runAnalysis = async () => {
     setErr('')
     setGenerating(true)
+    const { controller, timer } = timeoutSignal()
     try {
       const data = await api('/analysis/generate', {
         method: 'POST',
         body: JSON.stringify({ case_ids: selected }),
+        signal: controller.signal,
       })
       setAnalysis(data.analysis || '')
       setContext(data.context || null)
     } catch (e) {
-      setErr(e.message)
+      if (e.name === 'AbortError') {
+        setErr('Analysis request timed out. Check the NVIDIA API key, backend logs, Neo4j connection, and network access.')
+      } else {
+        setErr(e.message)
+      }
     } finally {
+      window.clearTimeout(timer)
       setGenerating(false)
     }
   }
@@ -56,17 +71,23 @@ export default function Analysis() {
     setErr('')
     setMessages((prev) => [...prev, { role: 'investigator', content: text }])
     setChatting(true)
+    const { controller, timer } = timeoutSignal()
     try {
       const data = await api('/analysis/chat', {
         method: 'POST',
         body: JSON.stringify({ message: text, case_ids: selected }),
+        signal: controller.signal,
       })
       setContext(data.context || null)
       setMessages((prev) => [...prev, { role: 'assistant', content: data.answer || 'No answer returned.' }])
     } catch (e2) {
-      setErr(e2.message)
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Request failed: ' + e2.message }])
+      const detail = e2.name === 'AbortError'
+        ? 'Chat request timed out. Check the NVIDIA API key, backend logs, Neo4j connection, and network access.'
+        : e2.message
+      setErr(detail)
+      setMessages((prev) => [...prev, { role: 'assistant', content: 'Request failed: ' + detail }])
     } finally {
+      window.clearTimeout(timer)
       setChatting(false)
     }
   }
