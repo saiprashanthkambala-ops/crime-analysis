@@ -101,14 +101,14 @@ export default function Analysis() {
   }
 
   const runGraphAnalysis = async () => {
-    if (selected.length !== 1) {
-      setErr('Select exactly one case to run graph analysis.')
+    if (!selected.length) {
+      setErr('Select at least one case to run graph analysis.')
       return
     }
     setErr('')
     setGraphAnalysisLoading(true)
     try {
-      const data = await withTimeout('/graph-analysis/' + encodeURIComponent(selected[0]))
+      const data = await withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(selected.join(',')))
       setGraphAnalysis(data)
     } catch (e) {
       setErr(
@@ -237,7 +237,7 @@ export default function Analysis() {
 
           <button
             className="btn"
-            disabled={selected.length !== 1 || graphAnalysisLoading}
+            disabled={!selected.length || graphAnalysisLoading}
             onClick={runGraphAnalysis}
           >
             {graphAnalysisLoading ? 'Running Graph Analysis…' : 'Run Graph Analysis'}
@@ -269,7 +269,7 @@ export default function Analysis() {
           title="Graph Analysis"
           actions={
             <span className="muted small">
-              GDS {graphAnalysis.gds_version} · {graphAnalysis.entity_count} people
+              {graphAnalysis.engine || 'graph-engine'} · {graphAnalysis.entity_count} people · {graphAnalysis.edge_count ?? 0} links
             </span>
           }
         >
@@ -303,12 +303,8 @@ export default function Analysis() {
           </div>
 
           <div className="info-box small">
-            Betweenness: {graphAnalysis.betweenness_mode}
-            {graphAnalysis.betweenness_sampling_size
-              ? ` (sampling ${graphAnalysis.betweenness_sampling_size})`
-              : ' (exact)'}.
-            These values describe network structure and evidence-backed connectivity;
-            they are not probabilities of guilt.
+            Engine: {graphAnalysis.engine || 'local graph engine'}. Betweenness: {graphAnalysis.betweenness_mode || 'exact'}.
+            These values describe network structure and evidence-backed connectivity; they are not probabilities of guilt.
           </div>
 
           <div className="table-scroll">
