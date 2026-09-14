@@ -15,7 +15,6 @@ from ..models import Event, Person
 from ..security import ensure_case_access
 from .neo4j_service import Neo4jConnectionError, run_read_query, run_write_query
 
-_CASE_GRAPH_RE = re.compile(r"^[A-Za-z0-9_]+$")
 GDS_REL_TYPES = ["CONNECTED_TO", "CALLED", "TRANSFERRED_TO", "ASSOCIATED_WITH"]
 
 
@@ -84,14 +83,16 @@ def _project_case_graph(case_id: str, *, directed: bool) -> tuple[str, dict[str,
 
 def _drop_graph(graph_name: str) -> None:
     try:
-        run_write_query("CALL gds.graph.drop($graph_name, false) YIELD graphName RETURN graphName", {"graph_name": graph_name})
+        run_write_query(
+            "CALL gds.graph.drop($graph_name, false) YIELD graphName RETURN graphName",
+            {"graph_name": graph_name},
+        )
     except Exception:
         pass
 
 
-def _named_nodes_query(prefix: str = "") -> str:
+def _named_nodes_query() -> str:
     return (
-        f"{prefix}"
         " RETURN gds.util.asNode(nodeId).id AS entity_id, "
         "gds.util.asNode(nodeId).name AS name, score "
         "ORDER BY score DESC, name ASC"
@@ -100,29 +101,35 @@ def _named_nodes_query(prefix: str = "") -> str:
 
 def _centralities(graph_name: str, person_count: int) -> dict[str, Any]:
     sampling = min(person_count, 100)
+
     degree = run_read_query(
         "CALL gds.degree.stream($graph_name, {orientation: 'UNDIRECTED', relationshipWeightProperty: 'weight', logProgress: false}) YIELD nodeId, score"
         + _named_nodes_query(),
         {"graph_name": graph_name},
     )
+
     betweenness_cfg = "{logProgress: false}"
     if person_count > 500:
         betweenness_cfg = "{samplingSize: 100, logProgress: false}"
+
     betweenness = run_read_query(
         f"CALL gds.betweenness.stream($graph_name, {betweenness_cfg}) YIELD nodeId, score"
         + _named_nodes_query(),
         {"graph_name": graph_name},
     )
+
     closeness = run_read_query(
         "CALL gds.closeness.stream($graph_name, {logProgress: false}) YIELD nodeId, score"
         + _named_nodes_query(),
         {"graph_name": graph_name},
     )
+
     pagerank = run_read_query(
         "CALL gds.pageRank.stream($graph_name, {maxIterations: 50, dampingFactor: 0.85, relationshipWeightProperty: 'weight', logProgress: false}) YIELD nodeId, score"
         + _named_nodes_query(),
         {"graph_name": graph_name},
     )
+
     return {
         "degree": degree,
         "betweenness": betweenness,
@@ -164,14 +171,16 @@ def _temporal_summary(db: Session, case_id: str) -> dict[str, Any]:
     ordered = []
     for event in events:
         if event.observed_date or event.observed_time:
-            ordered.append({
-                "event_id": str(event.id),
-                "type": event.event_type,
-                "date": event.observed_date,
-                "time": event.observed_time,
-                "person_a_id": event.person_a_id,
-                "person_b_id": event.person_b_id,
-            })
+            ordered.append(
+                {
+                    "event_id": str(event.id),
+                    "type": event.event_type,
+                    "date": event.observed_date,
+                    "time": event.observed_time,
+                    "person_a_id": event.person_a_id,
+                    "person_b_id": event.person_b_id,
+                }
+            )
     ordered.sort(key=lambda x: ((x["date"] or ""), (x["time"] or ""), x["event_id"]))
     return {
         "event_count": len(events),
@@ -227,23 +236,26 @@ def _shortest_path(case_id: str, source_person_id: str, target_person_id: str) -
 
 def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
     ensure_case_access(db, user, case_id)
-    people = db.query(Person).join(Person.cases).filter_by(id=case_id).count() if hasattr(Person, "cases") else 0
-    # Fall back to graph population when the SQL relationship is not exposed through the model.
-    if not people:
+
+    try:
         people = len(
             run_read_query(
                 "MATCH (p:Person) WHERE p.case_id = $case_id RETURN p.id AS id",
                 {"case_id": case_id},
             )
         )
+    except Neo4jConnectionError as exc:
+        raise GraphAnalysisUnavailable("Neo4j is unavailable for graph analysis.") from exc
 
     version = _ensure_gds()
     undirected_name, projection = _project_case_graph(case_id, directed=False)
     directed_name = None
+
     try:
         metrics = _centralities(undirected_name, people)
         communities = _communities(undirected_name)
         similarities = _similarity(undirected_name)
+
         directed_name, _ = _project_case_graph(case_id, directed=True)
         directed_pagerank = run_read_query(
             "CALL gds.pageRank.stream($graph_name, {maxIterations: 50, dampingFactor: 0.85, relationshipWeightProperty: 'weight', logProgress: false}) YIELD nodeId, score "
@@ -266,15 +278,17 @@ def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
     combined = []
     for row in metrics["degree"]:
         eid = row["entity_id"]
-        combined.append({
-            "entity_id": eid,
-            "name": row.get("name") or eid,
-            "degree": degree_map.get(eid, 0.0),
-            "betweenness": between_map.get(eid, 0.0),
-            "closeness": close_map.get(eid, 0.0),
-            "pagerank": pr_map.get(eid, 0.0),
-            "community_id": community_map.get(eid),
-        })
+        combined.append(
+            {
+                "entity_id": eid,
+                "name": row.get("name") or eid,
+                "degree": degree_map.get(eid, 0.0),
+                "betweenness": between_map.get(eid, 0.0),
+                "closeness": close_map.get(eid, 0.0),
+                "pagerank": pr_map.get(eid, 0.0),
+                "community_id": community_map.get(eid),
+            }
+        )
     combined.sort(key=lambda x: (x["pagerank"], x["betweenness"], x["degree"]), reverse=True)
 
     temporal = _temporal_summary(db, case_id)
@@ -309,10 +323,17 @@ def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
 def multi_hop_for_person(db: Session, user, case_id: str, person_id: str, max_hops: int = 3) -> dict[str, Any]:
     ensure_case_access(db, user, case_id)
     rows = _multi_hop(case_id, person_id, max_hops)
-    return {"case_id": case_id, "person_id": person_id, "max_hops": max(1, min(max_hops, 5)), "neighbors": rows}
+    return {
+        "case_id": case_id,
+        "person_id": person_id,
+        "max_hops": max(1, min(max_hops, 5)),
+        "neighbors": rows,
+    }
 
 
-def shortest_path_for_people(db: Session, user, case_id: str, source_person_id: str, target_person_id: str) -> dict[str, Any]:
+def shortest_path_for_people(
+    db: Session, user, case_id: str, source_person_id: str, target_person_id: str
+) -> dict[str, Any]:
     ensure_case_access(db, user, case_id)
     return {
         "case_id": case_id,
