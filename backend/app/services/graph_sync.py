@@ -3,10 +3,24 @@
 SQLite remains the application system of record. Neo4j receives a case-scoped,
 traceable graph projection used by later graph analysis and the AI agent.
 """
+import json
+
+from neo4j.exceptions import DriverError, Neo4jError, ServiceUnavailable, SessionExpired
 from sqlalchemy.orm import Session
 
 from ..models import Case, Document, Entity, Event, Evidence, Person, Relationship, person_entities
 from ..services.neo4j_service import Neo4jConnectionError, get_driver, run_read_query
+
+
+
+def _neo4j_json(value):
+    """Encode arbitrary SQL JSON into a Neo4j-compatible scalar property."""
+    if value is None:
+        return None
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
+    except Exception:
+        return str(value)
 
 
 def _merge_node(tx, label, key, props):
@@ -82,7 +96,7 @@ def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
 
             for p in persons:
                 _merge_id_node(tx, "Person", p.id, {
-                    "id": p.id, "name": p.name, "resolution": p.resolution or {},
+                    "id": p.id, "name": p.name, "resolution_json": _neo4j_json(p.resolution or {}),
                     "case_id": case_id,
                 })
                 tx.run(
@@ -169,7 +183,7 @@ def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
                     "id": evd.id, "type": evd.type, "confidence": evd.confidence,
                     "source_document_id": evd.source_document_id, "source_reference": evd.source_reference,
                     "date": evd.observed_date, "time": evd.observed_time, "case_id": case_id,
-                    "details": evd.details or {},
+                    "details_json": _neo4j_json(evd.details or {}),
                 })
                 tx.run(
                     "MATCH (e:Evidence {id: $evidence_id}), (c:Case {id: $case_id}) "
@@ -195,7 +209,7 @@ def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
                     "MATCH (a:Person {id: $a}), (b:Person {id: $b}) "
                     "MERGE (a)-[r:CONNECTED_TO]->(b) "
                     "SET r.relationship_id=$rid, r.score=$score, r.strength=$strength, r.signals=$signals",
-                    a=a, b=b, rid=r.id, score=r.score, strength=r.strength, signals=r.signals or {},
+                    a=a, b=b, rid=r.id, score=r.score, strength=r.strength, signals=_neo4j_json(r.signals or {}),
                 ).consume()
 
         session.execute_write(work)
@@ -347,6 +361,17 @@ def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
         case.neo4j_sync_counts = verification["neo4j"]
         db.commit()
         return {**result, "verification": verification}
+    except (Neo4jError, ServiceUnavailable, SessionExpired, DriverError, Neo4jConnectionError) as exc:
+        case = db.get(Case, case_id)
+        if case:
+            case.neo4j_sync_status = "FAILED"
+            case.neo4j_sync_error = str(exc)[:1000]
+            db.commit()
+        raise Neo4jConnectionError(
+            "Neo4j could not synchronize this case.",
+            reason="sync_error",
+            detail=str(exc)[:1000],
+        ) from exc
     except Exception as exc:
         case = db.get(Case, case_id)
         if case:
