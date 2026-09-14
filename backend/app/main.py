@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import BASE_DIR, settings
 from .database import Base, engine, ensure_column_migrations
-from .routers import auth, data, intelligence, admin, graph, analysis
+from .routers import auth, data, intelligence, admin, graph, analysis, graph_analysis
 from .seed import run_seed
 from .services.neo4j_service import close_driver, init_neo4j, neo4j_status
 from .neo4j.schema import initialize_schema
@@ -46,6 +46,7 @@ app.include_router(intelligence.router)
 app.include_router(admin.router)
 app.include_router(graph.router)
 app.include_router(analysis.router)
+app.include_router(graph_analysis.router)
 
 
 @app.get("/health")

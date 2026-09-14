@@ -255,3 +255,21 @@ Official NVIDIA resources used for this integration:
 - https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-5-lightning-30b-a3b-infer
 - https://docs.api.nvidia.com/nim/re/reference/llm-apis
 - https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b/modelcard
+
+## Phase 2 Graph Analysis
+
+Graph Analysis uses Neo4j Graph Data Science (GDS) when it is available on the configured Neo4j instance. The backend builds a temporary, case-scoped in-memory graph and runs deterministic algorithms over the Person-to-Person investigation relationships.
+
+Implemented metrics:
+- Degree Centrality — direct network connectivity.
+- Betweenness Centrality — bridge/intermediary position.
+- PageRank — network importance from incoming structure.
+- Closeness Centrality — distance to other people in the case graph.
+- Louvain — community detection.
+- Weakly Connected Components — disconnected network components.
+- Dijkstra shortest path — path between two authorized people.
+- Multi-hop traversal — 1–5 hop neighborhood exploration.
+- Node Similarity — Jaccard structural similarity.
+- Temporal summary — ordered timestamped events from the SQL evidence layer.
+
+The graph-analysis layer reports structural/evidence signals only. It does not calculate or display probability of guilt.
