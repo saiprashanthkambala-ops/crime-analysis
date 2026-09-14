@@ -80,6 +80,8 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
     const decoder = new TextDecoder()
     let buffer = ''
     let context = null
+    let tool = null
+    let mode = null
 
     while (true) {
       const { value, done } = await reader.read()
@@ -96,6 +98,8 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
           onToken(event.content || '')
         } else if (event.type === 'done') {
           context = event.context || null
+          tool = event.tool || null
+          mode = event.mode || null
         } else if (event.type === 'error') {
           throw new Error(event.detail || 'NVIDIA streaming request failed.')
         }
@@ -105,11 +109,11 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
     if (buffer.trim()) {
       const event = JSON.parse(buffer)
       if (event.type === 'token') onToken(event.content || '')
-      else if (event.type === 'done') context = event.context || null
+      else if (event.type === 'done') { context = event.context || null; tool = event.tool || null; mode = event.mode || null }
       else if (event.type === 'error') throw new Error(event.detail || 'NVIDIA streaming request failed.')
     }
 
-    return { context }
+    return { context, tool, mode }
   } finally {
     window.clearTimeout(timeout)
   }
