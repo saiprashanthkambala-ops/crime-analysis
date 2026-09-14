@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Person, User
 from ..security import get_current_user
-from ..services.graph_sync import sync_case_to_neo4j
+from ..services.graph_sync import sync_case_to_neo4j, reconcile_case_in_neo4j
 from ..services.graph_view import get_case_graph
 from ..services.neo4j_service import Neo4jConfigError, Neo4jConnectionError, run_read_query
 
@@ -86,11 +86,47 @@ def sync_graph(
     if not db.get(Case, case_id):
         raise HTTPException(status_code=404, detail="Case not found")
     try:
-        return {"ok": True, "result": sync_case_to_neo4j(db, case_id)}
+        result = sync_case_to_neo4j(db, case_id)
+        return {"ok": True, "result": result, "verification": result.get("verification")}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (Neo4jConfigError, Neo4jConnectionError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+@router.get("/reconcile/{case_id}")
+def reconcile_graph(
+    case_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from ..security import ensure_case_access
+    ensure_case_access(db, user, case_id)
+    try:
+        return reconcile_case_in_neo4j(db, case_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (Neo4jConfigError, Neo4jConnectionError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+@router.get("/sync-status/{case_id}")
+def sync_status(
+    case_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from ..models import Case
+    from ..security import ensure_case_access
+    ensure_case_access(db, user, case_id)
+    case = db.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return {
+        "case_id": case.id,
+        "status": case.neo4j_sync_status or "PENDING",
+        "synced_at": case.neo4j_sync_at.isoformat() if case.neo4j_sync_at else None,
+        "error": case.neo4j_sync_error,
+        "counts": case.neo4j_sync_counts or {},
+    }
 
 
 @router.get("/cases/{case_id}")

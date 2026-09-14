@@ -62,6 +62,10 @@ class Case(Base):
     status = Column(String, default="open")  # open | closed | archived
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
+    neo4j_sync_status = Column(String, default="PENDING", index=True)  # PENDING | SYNCING | SYNCED | FAILED
+    neo4j_sync_at = Column(DateTime)
+    neo4j_sync_error = Column(Text)
+    neo4j_sync_counts = Column(JSON, default=dict)
     users = relationship("User", secondary=case_users, backref="assigned_cases")
     documents = relationship("Document", back_populates="case")
 
