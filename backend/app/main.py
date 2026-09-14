@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import BASE_DIR, settings
 from .database import Base, engine, ensure_column_migrations
-from .routers import auth, data, intelligence, admin, graph
+from .routers import auth, data, intelligence, admin, graph, analysis
 from .seed import run_seed
 from .services.neo4j_service import close_driver, init_neo4j, neo4j_status
 from .neo4j.schema import initialize_schema
@@ -45,6 +45,7 @@ app.include_router(data.router)
 app.include_router(intelligence.router)
 app.include_router(admin.router)
 app.include_router(graph.router)
+app.include_router(analysis.router)
 
 
 @app.get("/health")
@@ -79,4 +80,4 @@ def spa_fallback(full_path: str):
         if full_path and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(FRONTEND_DIST / "index.html")
-    return {"detail": "Frontend build not found. Run `npm run build` in frontend/."}
+    return {"detail": "Frontend build not found. Run npm run build in frontend/."}
