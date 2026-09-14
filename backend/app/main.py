@@ -8,9 +8,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings, BASE_DIR
 from .database import Base, engine, ensure_column_migrations
-from .routers import auth, data, intelligence, admin
+from .routers import auth, data, intelligence, admin, graph
 from .seed import run_seed
 from .services.neo4j_service import close_driver, init_neo4j, neo4j_status
+from .neo4j.schema import initialize_schema
 
 
 @asynccontextmanager
@@ -19,9 +20,13 @@ async def lifespan(app: FastAPI):
     ensure_column_migrations()
     if settings.AUTO_SEED:
         run_seed()
-    # Remote Neo4j (Phase 1: connectivity only). Never fatal — SQLite and all
-    # existing APIs keep working when Neo4j is missing or unreachable.
     init_neo4j()
+    if neo4j_status()["status"] == "connected":
+        try:
+            initialize_schema()
+        except Exception as exc:  # noqa: BLE001 - graph setup must not kill API
+            import logging
+            logging.getLogger(__name__).warning("Neo4j schema initialization failed: %s", exc)
     yield
     close_driver()
 
@@ -40,32 +45,31 @@ app.include_router(auth.router)
 app.include_router(data.router)
 app.include_router(intelligence.router)
 app.include_router(admin.router)
+app.include_router(graph.router)
 
 
 @app.get("/health")
 def health():
-    """Basic application health, kept compatible with the original contract.
-
-    ``status`` stays ``"healthy"`` as long as the API itself is up — Neo4j
-    problems are reported separately under ``neo4j`` and never mark the whole
-    application unhealthy.
-    """
     return {"status": "healthy", "neo4j": neo4j_status()}
 
 
 @app.get("/api/health/neo4j")
 def neo4j_health():
+<<<<<<< HEAD
     """Dedicated Neo4j diagnostic probe.
 
     Executes a real ``RETURN 1`` Cypher query against the remote database and
     returns 503 when Neo4j is configured but unreachable. The response never
     contains credentials or the connection URI.
     """
+=======
+>>>>>>> 0bd7b3c1e6e0da40cd4a0d5a5ba64d46eaf2393f
     status = neo4j_status()
     http_status = 503 if status["status"] == "unavailable" else 200
     return JSONResponse(status_code=http_status, content=status)
 
 
+<<<<<<< HEAD
 @app.get("/api/neo4j/status")
 @app.get("/api/neo4j/connected")
 def neo4j_status_endpoint():
@@ -81,6 +85,8 @@ def neo4j_status_endpoint():
 
 # ---------------------------------------------------------------- static SPA
 # Registered last so API routes always take precedence over the SPA fallback.
+=======
+>>>>>>> 0bd7b3c1e6e0da40cd4a0d5a5ba64d46eaf2393f
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 
 if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
@@ -89,7 +95,6 @@ if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
 
 @app.get("/{full_path:path}", include_in_schema=False)
 def spa_fallback(full_path: str):
-    # Unknown API routes must 404 (JSON), never return the SPA.
     if full_path == "api" or full_path.startswith("api/"):
         return JSONResponse({"detail": "Not found"}, status_code=404)
     if FRONTEND_DIST.exists():
