@@ -1,12 +1,11 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import BASE_DIR
+from .config import BASE_DIR, settings
 from .database import Base, engine, ensure_column_migrations
 from .routers import auth, data, intelligence, admin, graph
 from .seed import run_seed
@@ -18,7 +17,7 @@ from .neo4j.schema import initialize_schema
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_column_migrations()
-    if run_seed:
+    if settings.AUTO_SEED:
         run_seed()
     init_neo4j()
     if neo4j_status().get("connected"):
