@@ -116,6 +116,40 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
     }
 
 
+def build_llm_context(context: dict, *, max_cases: int = 10, max_people: int = 50, max_entities: int = 60,
+                      max_relationships: int = 40, max_evidence: int = 60, max_chars: int = 28000) -> dict:
+    """Return a strict-size context for the model while leaving the full context for the UI."""
+    compact = {
+        "cases": context.get("cases", [])[:max_cases],
+        "counts": context.get("counts", {}),
+        "people": context.get("people", [])[:max_people],
+        "entities": context.get("entities", [])[:max_entities],
+        "relationships": context.get("relationships", [])[:max_relationships],
+        "evidence": context.get("evidence", [])[:max_evidence],
+    }
+
+    import json
+    encoded = json.dumps(compact, default=str, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded) <= max_chars:
+        return compact
+
+    # Keep the highest-value structured information first.
+    compact["evidence"] = compact["evidence"][:25]
+    compact["entities"] = compact["entities"][:25]
+    compact["relationships"] = compact["relationships"][:20]
+    compact["people"] = compact["people"][:30]
+    encoded = json.dumps(compact, default=str, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded) <= max_chars:
+        return compact
+
+    # Final hard cap: retain case metadata, counts, and the most important relationships.
+    compact["evidence"] = compact["evidence"][:10]
+    compact["entities"] = compact["entities"][:10]
+    compact["relationships"] = compact["relationships"][:10]
+    compact["people"] = compact["people"][:20]
+    return compact
+
+
 def build_case_graph(db: Session, user, requested_case_ids: list[str] | None = None) -> dict:
     """Load the Neo4j graph separately so it cannot block the LLM request."""
     case_ids = _case_ids(db, user, requested_case_ids)
