@@ -3,6 +3,7 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -10,7 +11,7 @@ from ..database import get_db
 from ..models import User
 from ..security import get_current_user, log_audit
 from ..services.case_analysis import build_case_analysis, build_case_graph
-from ..services.nvidia_client import NVIDIAClientError, chat as nvidia_chat, is_configured
+from ..services.nvidia_client import NVIDIAClientError, chat as nvidia_chat, is_configured, stream_chat
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -82,6 +83,24 @@ def nvidia_status(user: User = Depends(get_current_user)):
     }
 
 
+@router.get("/nvidia-ping")
+def nvidia_ping(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Small provider-only smoke test, independent of case data and Neo4j."""
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
+    try:
+        result = nvidia_chat([
+            {"role": "user", "content": "Reply with exactly: NVIDIA_OK"}
+        ])
+        content = result.choices[0].message.content or ""
+        log_audit(db, user.id, "nvidia_ping", "system", None)
+        return {"ok": True, "model": "nvidia/nemotron-3.5-lightning-30b-a3b", "response": content}
+    except NVIDIAClientError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except Exception:
+        raise HTTPException(status_code=502, detail="NVIDIA provider test failed. Check backend logs.")
+
+
 @router.post("/generate")
 def generate_analysis(
     body: AnalysisRequest,
@@ -117,12 +136,30 @@ def chat_endpoint(
     context = build_case_analysis(db, user, body.case_ids or None)
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
-    try:
-        result = nvidia_chat(_llm_messages(context, "Answer the investigator's question from the supplied case data.", body.message))
-        answer = result.choices[0].message.content or ""
-    except NVIDIAClientError as exc:
-        raise HTTPException(status_code=504, detail=str(exc)) from exc
-    except Exception:
-        raise HTTPException(status_code=502, detail="NVIDIA chat request failed. Check backend logs for the provider response.")
-    log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
-    return {"answer": answer, "context": context}
+
+    messages = _llm_messages(
+        context,
+        "Answer the investigator's question from the supplied case data.",
+        body.message,
+    )
+
+    def event_stream():
+        try:
+            for token in stream_chat(messages):
+                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False) + "
+"
+            log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
+            yield json.dumps({"type": "done", "context": context}, default=str) + "
+"
+        except NVIDIAClientError as exc:
+            yield json.dumps({"type": "error", "detail": str(exc)}) + "
+"
+        except Exception:
+            yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}) + "
+"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
