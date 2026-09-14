@@ -33,6 +33,8 @@ export default function Analysis() {
   const [messages, setMessages] = useState([])
   const [chatting, setChatting] = useState(false)
   const [err, setErr] = useState('')
+  const [agentTools, setAgentTools] = useState({})
+  const [suspicious, setSuspicious] = useState([])
 
   useEffect(() => {
     Promise.all([
@@ -60,6 +62,21 @@ export default function Analysis() {
       return next
     })
     setGraphAnalysis(null)
+  }
+
+  const refreshSuspicious = async () => {
+    if (!selected.length) {
+      setSuspicious([])
+      return
+    }
+    try {
+      const data = await withTimeout(
+        '/analysis/suspicious?case_ids=' + encodeURIComponent(selected.join(','))
+      )
+      setSuspicious(data.candidates || [])
+    } catch (e) {
+      if (e.name !== 'AbortError') setErr(e.message)
+    }
   }
 
   const refreshGraph = async () => {
@@ -94,6 +111,7 @@ export default function Analysis() {
 
       setAnalysis(data.analysis || '')
       setContext(data.context || null)
+      void refreshSuspicious()
       const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
       if (firstGraphCase) {
         setGraphAnalysisCaseId(firstGraphCase)
@@ -158,6 +176,14 @@ export default function Analysis() {
     ])
     setChatting(true)
 
+    const history = messages
+      .slice(-6)
+      .map((m) => ({
+        role: m.role === 'investigator' ? 'user' : 'assistant',
+        content: m.content || '',
+      }))
+      .filter((m) => m.content)
+
     try {
       const data = await streamAnalysisChat(
         selected,
@@ -175,7 +201,9 @@ export default function Analysis() {
       )
 
       if (data.context) setContext(data.context)
+      setAgentTools((prev) => ({ ...prev, [messageIndex + 1]: data.tool || data.mode || 'case_context' }))
       void refreshGraph()
+      void refreshSuspicious()
     } catch (e) {
       const detail = e.name === 'AbortError'
         ? 'Chat timed out after 90 seconds. Check NVIDIA_API_KEY, NVIDIA connectivity, and the backend log.'
@@ -437,7 +465,46 @@ export default function Analysis() {
       )}
 
       <div className="two-col analysis-workspace">
-        <Panel title="Generated Case Analysis">
+        <Panel title="Suspicious Relationship Candidates">
+        {suspicious.length ? (
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Person A</th>
+                  <th>Person B</th>
+                  <th>Score</th>
+                  <th>Strength</th>
+                  <th>Signals</th>
+                </tr>
+              </thead>
+              <tbody>
+                {suspicious.slice(0, 15).map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.person_a?.name || r.person_a?.id}</td>
+                    <td>{r.person_b?.name || r.person_b?.id}</td>
+                    <td className="mono">{r.score ?? '—'}</td>
+                    <td><span className="badge status-badge">{r.strength || '—'}</span></td>
+                    <td className="muted small">
+                      {Object.entries(r.signals || {})
+                        .filter(([, v]) => Array.isArray(v) ? v.length : v)
+                        .map(([k, v]) => k + ': ' + (Array.isArray(v) ? v.length : v))
+                        .join(' · ') || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty muted">No relationship candidates are currently ranked for the selected case set.</div>
+        )}
+        <div className="info-box small">
+          Candidates are prioritized from stored relationship-strength signals. They are investigation leads, not guilt determinations.
+        </div>
+      </Panel>
+
+      <Panel title="Generated Case Analysis">
           {analysis ? (
             <MarkdownMessage text={analysis} />
           ) : (
@@ -468,6 +535,9 @@ export default function Analysis() {
                       : 'Nemotron'}
                   </div>
                   <div className="chat-content">{m.role === 'assistant' ? <MarkdownMessage text={m.content} /> : m.content}</div>
+                  {m.role === 'assistant' && agentTools[i] && (
+                    <div className="muted small">Analysis tool: {agentTools[i]}</div>
+                  )}
                 </div>
               ))}
 
