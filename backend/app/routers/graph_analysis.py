@@ -6,14 +6,22 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User
 from ..security import get_current_user
-from ..services.graph_analysis import (
-    GraphAnalysisUnavailable,
-    analyze_case,
-    multi_hop_for_person,
-    shortest_path_for_people,
-)
+from ..services.graph_analysis import GraphAnalysisUnavailable, analyze_cases, analyze_case, multi_hop_for_person, shortest_path_for_people
 
 router = APIRouter(prefix="/api/graph-analysis", tags=["graph-analysis"])
+
+
+@router.get("")
+def selected_cases_analysis(
+    case_ids: str = Query(default=""),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    ids = [x.strip() for x in case_ids.split(",") if x.strip()]
+    try:
+        return analyze_cases(db, user, ids)
+    except GraphAnalysisUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/{case_id}")
