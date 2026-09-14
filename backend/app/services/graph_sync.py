@@ -28,7 +28,7 @@ def _merge_edge(tx, source_label, source_key, rel_type, target_label, target_key
     tx.run(query, source_key=source_key, target_key=target_key, props=props or {}).consume()
 
 
-def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
+def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
     """Synchronize one SQL case into Neo4j. Repeated calls are idempotent."""
     case = db.get(Case, case_id)
     if case is None:
@@ -209,3 +209,143 @@ def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
         "evidence": len(evidence),
         "relationships": len(relationships),
     }
+
+
+def mark_sync_pending(db: Session, case_id: str) -> None:
+    case = db.get(Case, case_id)
+    if not case:
+        raise ValueError("Case not found")
+    case.neo4j_sync_status = "PENDING"
+    case.neo4j_sync_error = None
+    db.commit()
+
+
+def reconcile_case_in_neo4j(db: Session, case_id: str) -> dict:
+    """Compare SQL canonical counts with the Neo4j case projection."""
+    case = db.get(Case, case_id)
+    if not case:
+        raise ValueError("Case not found")
+
+    sql_counts = {
+        "documents": db.query(Document).filter(Document.case_id == case_id).count(),
+        "entities": db.query(Entity).filter(Entity.case_id == case_id).count(),
+        "events": db.query(Event).filter(Event.case_id == case_id).count(),
+        "evidence": db.query(Evidence).filter(Evidence.case_id == case_id).count(),
+    }
+
+    person_ids = set()
+    for row in db.query(Event).filter(Event.case_id == case_id).all():
+        person_ids.update(x for x in (row.person_a_id, row.person_b_id) if x)
+    for row in db.query(Evidence).filter(Evidence.case_id == case_id).all():
+        person_ids.update(x for x in (row.person_a_id, row.person_b_id) if x)
+
+    linked = (
+        db.query(person_entities.c.person_id)
+        .join(Entity, Entity.id == person_entities.c.entity_id)
+        .filter(Entity.case_id == case_id)
+        .distinct()
+        .all()
+    )
+    person_ids.update(row[0] for row in linked)
+    if person_ids:
+        sql_counts["persons"] = db.query(Person).filter(Person.id.in_(person_ids)).count()
+        sql_counts["relationships"] = (
+            db.query(Relationship)
+            .filter(
+                Relationship.person_a_id.in_(person_ids),
+                Relationship.person_b_id.in_(person_ids),
+            )
+            .count()
+        )
+    else:
+        sql_counts["persons"] = 0
+        sql_counts["relationships"] = 0
+
+    rows = run_read_query(
+        """
+        MATCH (c:Case {id: $case_id})
+        OPTIONAL MATCH (p:Person)-[:INVOLVED_IN]->(c)
+        WITH c, count(DISTINCT p) AS persons
+        OPTIONAL MATCH (e:Entity)-[:BELONGS_TO]->(c)
+        WITH c, persons, count(DISTINCT e) AS entities
+        OPTIONAL MATCH (d:Document)-[:BELONGS_TO]->(c)
+        WITH c, persons, entities, count(DISTINCT d) AS documents
+        OPTIONAL MATCH (ev:Event)-[:BELONGS_TO]->(c)
+        WITH c, persons, entities, documents, count(DISTINCT ev) AS events
+        OPTIONAL MATCH (x:Evidence)-[:BELONGS_TO]->(c)
+        WITH c, persons, entities, documents, events, count(DISTINCT x) AS evidence
+        OPTIONAL MATCH (a:Person)-[r:CONNECTED_TO]->(b:Person)
+        WHERE a.case_id = $case_id AND b.case_id = $case_id
+        RETURN count(DISTINCT r) AS relationships,
+               persons, entities, documents, events, evidence
+        """,
+        {"case_id": case_id},
+    )
+
+    neo_counts = rows[0] if rows else {
+        "persons": 0, "entities": 0, "documents": 0, "events": 0,
+        "evidence": 0, "relationships": 0,
+    }
+
+    expected = {
+        "persons": sql_counts["persons"],
+        "entities": sql_counts["entities"],
+        "documents": sql_counts["documents"],
+        "events": sql_counts["events"],
+        "evidence": sql_counts["evidence"],
+        "relationships": sql_counts["relationships"],
+    }
+    actual = {k: int(neo_counts.get(k) or 0) for k in expected}
+    mismatches = {
+        key: {"sql": expected[key], "neo4j": actual[key]}
+        for key in expected
+        if expected[key] != actual[key]
+    }
+
+    return {
+        "case_id": case_id,
+        "matched": not mismatches,
+        "sql": sql_counts,
+        "neo4j": actual,
+        "mismatches": mismatches,
+    }
+
+
+def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
+    """Synchronize a case and verify the resulting Neo4j projection."""
+    case = db.get(Case, case_id)
+    if case is None:
+        raise ValueError("Case not found")
+
+    case.neo4j_sync_status = "SYNCING"
+    case.neo4j_sync_error = None
+    db.commit()
+
+    try:
+        result = _sync_case_to_neo4j(db, case_id)
+        verification = reconcile_case_in_neo4j(db, case_id)
+        if not verification["matched"]:
+            case.neo4j_sync_status = "FAILED"
+            case.neo4j_sync_error = "Neo4j projection does not match SQL: " + str(verification["mismatches"])
+            case.neo4j_sync_counts = verification["neo4j"]
+            db.commit()
+            raise Neo4jConnectionError(
+                "Neo4j synchronization verification failed.",
+                reason="reconcile_mismatch",
+                detail=case.neo4j_sync_error,
+            )
+
+        from datetime import datetime
+        case.neo4j_sync_status = "SYNCED"
+        case.neo4j_sync_at = datetime.utcnow()
+        case.neo4j_sync_error = None
+        case.neo4j_sync_counts = verification["neo4j"]
+        db.commit()
+        return {**result, "verification": verification}
+    except Exception as exc:
+        case = db.get(Case, case_id)
+        if case:
+            case.neo4j_sync_status = "FAILED"
+            case.neo4j_sync_error = str(exc)[:1000]
+            db.commit()
+        raise
