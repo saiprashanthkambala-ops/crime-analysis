@@ -44,7 +44,7 @@ def get_case_graph(case_id: str, db: Session = Depends(get_db), user: User = Dep
     WITH collect(DISTINCT node) AS nodes, rels
     RETURN
       [n IN nodes | {data: {id: coalesce(n.id, n.key), label: coalesce(n.name, n.value, n.filename, n.type, n.id, n.key), type: labels(n)[0], score: n.score, strength: n.strength}}] AS nodes,
-      [r IN rels | {data: {id: elementId(r), source: startNode(r).id, target: endNode(r).id, label: type(r), type: type(r), score: r.score, strength: r.strength}}] AS edges
+      [r IN rels | {data: {id: elementId(r), source: coalesce(startNode(r).id, startNode(r).key), target: coalesce(endNode(r).id, endNode(r).key), label: type(r), type: type(r), score: r.score, strength: r.strength}}] AS edges
     """
     try:
         rows = run_read_query(query, {"case_id": case_id})
@@ -60,21 +60,13 @@ def person_neighbors(person_id: str, db: Session = Depends(get_db), user: User =
     person = db.get(Person, person_id)
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
-    # Access is checked against every case the person belongs to in SQL before Neo4j is queried.
-    case_ids = db.query(Person).filter(Person.id == person_id).first()
-    if not case_ids:
-        raise HTTPException(status_code=404, detail="Person not found")
-    # Investigator access is case-scoped; admins may access all cases.
-    if user.role != "admin":
-        accessible = {c.id for c in user.assigned_cases}
-        person_case_rows = db.execute(
-            "SELECT DISTINCT case_id FROM entities WHERE 1=0"
-        ) if False else None
-        # Person IDs are generated from case data; verify via assigned cases' person graph projection below.
-        # The graph query itself is restricted to cases the investigator can access.
-        allowed_cases = list(accessible)
-    else:
+
+    if user.role == "admin":
         allowed_cases = []
+    else:
+        allowed_cases = [case.id for case in user.assigned_cases]
+        if not allowed_cases:
+            raise HTTPException(status_code=403, detail="You do not have access to this person")
 
     query = """
     MATCH (p:Person {id: $person_id})-[r]-(n)
