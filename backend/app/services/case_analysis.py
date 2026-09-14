@@ -116,15 +116,17 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
             """
             MATCH (c:Case)
             WHERE c.id IN $case_ids
-            OPTIONAL MATCH (n)-[r]-(m)
+            WITH collect(c) AS case_nodes
+            UNWIND case_nodes AS c
+            OPTIONAL MATCH (c)<-[:INVOLVED_IN|BELONGS_TO]-(n)-[r]-(m)
             WHERE (n.case_id IN $case_ids OR n = c)
               AND (m.case_id IN $case_ids OR m = c)
-            WITH collect(DISTINCT n) + collect(DISTINCT m) AS raw_nodes,
+            WITH case_nodes + collect(DISTINCT n) + collect(DISTINCT m) AS raw_nodes,
                  collect(DISTINCT r) AS rels
             UNWIND raw_nodes AS node
             WITH collect(DISTINCT node) AS nodes, rels
             RETURN
-              [n IN nodes |
+              [n IN nodes WHERE n IS NOT NULL |
                 {data: {
                   id: coalesce(n.id, n.key),
                   label: coalesce(n.name, n.value, n.filename, n.type, n.id, n.key),
@@ -133,7 +135,7 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
                   strength: n.strength
                 }}
               ] AS nodes,
-              [r IN rels |
+              [r IN rels WHERE r IS NOT NULL |
                 {data: {
                   id: elementId(r),
                   source: coalesce(startNode(r).id, startNode(r).key),
