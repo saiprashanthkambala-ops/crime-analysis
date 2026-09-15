@@ -1,0 +1,206 @@
+/* CrimeLink focused UI cleanup: preserve layout, navigation and behavior. */
+
+/* Dashboard metric cards: restrained icon treatment. */
+.dashboard-page .stat-card {
+  position: relative;
+  min-height: 112px;
+  padding: 15px 16px 14px;
+  box-shadow: none;
+}
+.dashboard-page .stat-icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--accent-2);
+  background: var(--panel-2);
+}
+.dashboard-page .stat-value { line-height: 1.05; }
+
+/* Analysis surfaces: clean investigation-console appearance, no neon glow. */
+.analysis-page .panel,
+.analysis-page .stat-card,
+.analysis-page .analysis-case-card,
+.analysis-page .chat-panel,
+.analysis-page .analysis-summary-panel {
+  box-shadow: none !important;
+}
+
+.analysis-page .panel {
+  border-radius: 8px;
+}
+
+.analysis-page .panel-head {
+  min-height: 48px;
+  background: var(--panel-2);
+}
+
+.analysis-page .panel-actions,
+.analysis-page .analysis-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.analysis-page .analysis-actions {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.analysis-page .btn,
+.analysis-page .select-inline,
+.analysis-page input,
+.analysis-page textarea,
+.analysis-page select {
+  box-shadow: none !important;
+}
+
+.analysis-page .btn:hover,
+.analysis-page .btn:focus-visible {
+  transform: none;
+  box-shadow: none !important;
+}
+
+.analysis-page .btn-primary {
+  box-shadow: none !important;
+}
+
+.analysis-page .analysis-case-picker {
+  gap: 8px;
+}
+
+.analysis-page .analysis-case-card {
+  border-radius: 8px;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+
+.analysis-page .analysis-case-card:hover {
+  box-shadow: none !important;
+  border-color: var(--accent-2);
+}
+
+/* Graph-analysis cards/tables remain information-dense without decorative glow. */
+.analysis-page .stat-grid .stat-card {
+  min-height: 92px;
+  padding: 13px 14px;
+}
+
+.analysis-page .stat-grid .stat-value {
+  font-size: 23px;
+}
+
+.analysis-page .table-scroll {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: auto;
+}
+
+.analysis-page .table-scroll .table {
+  margin: 0;
+}
+
+.analysis-page .table th {
+  background: var(--panel-2);
+}
+
+.analysis-page .graph-analysis,
+.analysis-page .graph-toolbar,
+.analysis-page .graph-controls,
+.analysis-page .graph-taskbar {
+  box-shadow: none !important;
+}
+
+/* AI chatbox: quiet, readable, professional. */
+.analysis-page .chat-panel {
+  border-color: var(--border);
+}
+
+.analysis-page .chat-shell {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-messages {
+  background: var(--bg-2);
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-message {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-investigator {
+  background: var(--panel-2);
+}
+
+.analysis-page .chat-assistant {
+  background: var(--panel);
+}
+
+.analysis-page .chat-role {
+  color: var(--muted);
+  letter-spacing: .04em;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.analysis-page .chat-tool-tag {
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-form {
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-input-wrapper {
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-input {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-input:focus {
+  border-color: var(--accent-2);
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-send-btn {
+  box-shadow: none !important;
+}
+
+.analysis-page .chat-send-btn:hover:not(:disabled) {
+  box-shadow: none !important;
+  transform: none;
+}
+
+/* Remove decorative glow from analysis feedback/status surfaces in both themes. */
+[data-theme="dark"] .analysis-page .panel,
+[data-theme="dark"] .analysis-page .stat-card,
+[data-theme="dark"] .analysis-page .chat-shell,
+[data-theme="dark"] .analysis-page .chat-message,
+[data-theme="light"] .analysis-page .panel,
+[data-theme="light"] .analysis-page .stat-card,
+[data-theme="light"] .analysis-page .chat-shell,
+[data-theme="light"] .analysis-page .chat-message {
+  filter: none;
+  text-shadow: none;
+}
