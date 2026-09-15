@@ -63,9 +63,10 @@ export function TypeBadge({ type }) {
   return <span className={`badge type-badge`}>{type}</span>
 }
 
-export function StatCard({ label, value, hint }) {
+export function StatCard({ label, value, hint, icon }) {
   return (
     <div className="stat-card">
+      {icon && <div className="stat-icon" aria-hidden="true">{icon}</div>}
       <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
       {hint && <div className="stat-hint muted">{hint}</div>}
