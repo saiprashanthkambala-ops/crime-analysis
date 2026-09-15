@@ -5,6 +5,7 @@ import App from './App'
 import { AuthProvider } from './auth'
 import { ThemeProvider } from './theme'
 import './styles.css'
+import './styles-ui-cleanup.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
