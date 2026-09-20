@@ -50,6 +50,95 @@ def create_user(body: UserCreate, user: User = Depends(require_admin),
     return u.as_dict()
 
 
+@router.get("/admin/investigators/overview")
+def investigator_overview(user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Return investigator access/assignment/activity details for the admin console.
+
+    Passwords are intentionally never exposed. The stored password is a one-way
+    hash and cannot be used as a login credential by the UI.
+    """
+    investigators = (
+        db.query(User)
+        .filter(User.role == "investigator")
+        .order_by(User.username.asc())
+        .all()
+    )
+    cases = db.query(Case).all()
+    case_by_id = {c.id: c for c in cases}
+    logs = (
+        db.query(AuditLog)
+        .order_by(AuditLog.id.desc())
+        .limit(1000)
+        .all()
+    )
+
+    latest_activity = {}
+    latest_login = {}
+    for log in logs:
+        if log.user_id is None:
+            continue
+        if log.user_id not in latest_activity:
+            latest_activity[log.user_id] = log
+        if log.action == "login" and log.user_id not in latest_login:
+            latest_login[log.user_id] = log
+
+    result = []
+    for investigator in investigators:
+        assigned = list(investigator.assigned_cases)
+        case_activity = []
+        seen_case_ids = set()
+        for log in logs:
+            if log.user_id != investigator.id or log.entity_type != "case" or not log.entity_id:
+                continue
+            cid = str(log.entity_id)
+            if cid in seen_case_ids:
+                continue
+            case = case_by_id.get(cid)
+            case_activity.append({
+                "case_id": cid,
+                "case_name": case.name if case else cid,
+                "action": log.action,
+                "at": log.created_at.isoformat() if log.created_at else None,
+            })
+            seen_case_ids.add(cid)
+            if len(case_activity) >= 5:
+                break
+
+        result.append({
+            "id": investigator.id,
+            "username": investigator.username,
+            "full_name": investigator.full_name,
+            "email": investigator.email,
+            "role": investigator.role,
+            "is_active": investigator.is_active,
+            "created_at": investigator.created_at.isoformat() if investigator.created_at else None,
+            "assigned_cases": [
+                {
+                    "id": case.id,
+                    "name": case.name,
+                    "status": case.status,
+                }
+                for case in assigned
+            ],
+            "last_login": (
+                latest_login[investigator.id].created_at.isoformat()
+                if investigator.id in latest_login and latest_login[investigator.id].created_at
+                else None
+            ),
+            "last_activity": (
+                latest_activity[investigator.id].created_at.isoformat()
+                if investigator.id in latest_activity and latest_activity[investigator.id].created_at
+                else None
+            ),
+            "recent_case_activity": case_activity,
+        })
+
+    return {
+        "investigators": result,
+        "note": "Passwords are never displayed or returned by this endpoint. Use the admin user-management controls to create accounts or set credentials.",
+    }
+
+
 @router.get("/admin/cases")
 def admin_cases(user: User = Depends(require_admin), db: Session = Depends(get_db)):
     cases = db.query(Case).all()
