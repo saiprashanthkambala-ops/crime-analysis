@@ -4,7 +4,7 @@ import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 import MarkdownMessage from '../components/MarkdownMessage'
 
-const REQUEST_TIMEOUT_MS = 50000
+const REQUEST_TIMEOUT_MS = 300000
 
 async function withTimeout(path, options = {}) {
   const controller = new AbortController()
@@ -187,7 +187,7 @@ export default function Analysis() {
     } catch (e) {
       setErr(
         e.name === 'AbortError'
-          ? 'Analysis timed out after 50 seconds. Check NVIDIA_API_KEY and the backend server log.'
+          ? 'Analysis timed out after 5 minutes. Check NVIDIA_API_KEY and the backend server log.'
           : e.message
       )
     } finally {
@@ -209,7 +209,7 @@ export default function Analysis() {
     } catch (e) {
       setErr(
         e.name === 'AbortError'
-          ? 'Graph analysis timed out. Check Neo4j and Neo4j Graph Data Science (GDS).'
+          ? 'Graph analysis timed out after 5 minutes. Check the backend server and selected case data.'
           : e.message
       )
     } finally {
@@ -263,7 +263,7 @@ export default function Analysis() {
       void refreshSuspicious()
     } catch (e) {
       const detail = e.name === 'AbortError'
-        ? 'Chat timed out after 90 seconds. Check NVIDIA_API_KEY, NVIDIA connectivity, and the backend log.'
+        ? 'Chat timed out after 5 minutes. Check NVIDIA_API_KEY, NVIDIA connectivity, and the backend log.'
         : e.message
       setErr(detail)
       setMessages((prev) =>
