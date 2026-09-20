@@ -63,9 +63,23 @@ export function TypeBadge({ type }) {
   return <span className={`badge type-badge`}>{type}</span>
 }
 
-export function StatCard({ label, value, hint, icon }) {
+export function StatCard({ label, value, hint, icon, onClick, className = '' }) {
+  const interactive = typeof onClick === 'function'
+  const classes = ['stat-card', interactive ? 'stat-card-interactive' : '', className].filter(Boolean).join(' ')
+
   return (
-    <div className="stat-card">
+    <div
+      className={classes}
+      onClick={onClick}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={interactive ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick(e)
+        }
+      } : undefined}
+    >
       {icon && <div className="stat-icon" aria-hidden="true">{icon}</div>}
       <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
