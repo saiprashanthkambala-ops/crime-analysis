@@ -219,7 +219,7 @@ export default function Analysis() {
           : e.message
       )
     } finally {
-      if (!generating) finishProgress(setAnalysisProgress, analysisProgressTimer)
+      finishProgress(setAnalysisProgress, analysisProgressTimer)
       setGenerating(false)
     }
   }
