@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
-import { ThemeToggle, Spinner } from './ui'\nimport { api } from '../api'
+import { ThemeToggle, Spinner } from './ui'
+import { api } from '../api'
 import appLogo from '../profil icon'
 
 export default function Layout() {
