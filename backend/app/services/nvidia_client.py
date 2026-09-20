@@ -1,5 +1,6 @@
 """NVIDIA Nemotron client used only from the backend."""
 
+from threading import Lock
 from typing import Any, Iterator
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
@@ -14,15 +15,25 @@ def is_configured() -> bool:
     return bool(settings.NVIDIA_API_KEY.strip())
 
 
+_client_instance: OpenAI | None = None
+_client_lock = Lock()
+
+
 def _client() -> OpenAI:
+    """Return one reusable client so HTTP keep-alive connections can be pooled."""
+    global _client_instance
     if not is_configured():
         raise NVIDIAClientError("NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
-    return OpenAI(
-        base_url=settings.NVIDIA_BASE_URL,
-        api_key=settings.NVIDIA_API_KEY,
-        timeout=settings.NVIDIA_TIMEOUT_SECONDS,
-        max_retries=0,
-    )
+    if _client_instance is None:
+        with _client_lock:
+            if _client_instance is None:
+                _client_instance = OpenAI(
+                    base_url=settings.NVIDIA_BASE_URL,
+                    api_key=settings.NVIDIA_API_KEY,
+                    timeout=settings.NVIDIA_TIMEOUT_SECONDS,
+                    max_retries=0,
+                )
+    return _client_instance
 
 
 def _provider_error(prefix: str, exc: APIStatusError) -> NVIDIAClientError:
