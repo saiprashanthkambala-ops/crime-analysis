@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, streamAnalysisChat } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
@@ -36,6 +36,29 @@ export default function Analysis() {
   const [err, setErr] = useState('')
   const [agentTools, setAgentTools] = useState({})
   const [suspicious, setSuspicious] = useState([])
+  const [analysisProgress, setAnalysisProgress] = useState(0)
+  const [graphProgress, setGraphProgress] = useState(0)
+  const analysisProgressTimer = useRef(null)
+  const graphProgressTimer = useRef(null)
+
+  const startEstimatedProgress = (setter, timerRef) => {
+    window.clearInterval(timerRef.current)
+    setter(8)
+    timerRef.current = window.setInterval(() => {
+      setter((current) => current >= 92 ? current : Math.min(92, current + Math.max(1, Math.round((92 - current) / 7))))
+    }, 900)
+  }
+
+  const finishProgress = (setter, timerRef) => {
+    window.clearInterval(timerRef.current)
+    timerRef.current = null
+    setter(100)
+  }
+
+  useEffect(() => () => {
+    window.clearInterval(analysisProgressTimer.current)
+    window.clearInterval(graphProgressTimer.current)
+  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -91,6 +114,7 @@ export default function Analysis() {
     }
     setErr('')
     setGraphStatus('generating')
+    startEstimatedProgress(setGraphProgress, graphProgressTimer)
     try {
       const data = await withTimeout('/graph/generate', {
         method: 'POST',
@@ -98,9 +122,11 @@ export default function Analysis() {
       })
       setGraph(data)
       setGraphStatus(data.source || 'generated')
+      finishProgress(setGraphProgress, graphProgressTimer)
     } catch (e) {
       setGraph({ nodes: [], edges: [] })
       setGraphStatus('unavailable')
+      finishProgress(setGraphProgress, graphProgressTimer)
       setErr(
         e.name === 'AbortError'
           ? 'Graph generation timed out. Check Neo4j connectivity and the selected case data.'
@@ -159,6 +185,7 @@ export default function Analysis() {
   const runAnalysis = async () => {
     setErr('')
     setGenerating(true)
+    startEstimatedProgress(setAnalysisProgress, analysisProgressTimer)
 
     try {
       const data = await withTimeout('/analysis/generate', {
@@ -168,6 +195,7 @@ export default function Analysis() {
 
       setAnalysis(data.analysis || '')
       setContext(data.context || null)
+      finishProgress(setAnalysisProgress, analysisProgressTimer)
       void refreshSuspicious()
       const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
       if (firstGraphCase) {
@@ -191,6 +219,7 @@ export default function Analysis() {
           : e.message
       )
     } finally {
+      finishProgress(setAnalysisProgress, analysisProgressTimer)
       setGenerating(false)
     }
   }
@@ -345,51 +374,66 @@ export default function Analysis() {
         )}
 
         <div className="analysis-actions">
-          <button
-            className="btn btn-primary"
-            disabled={
-              !selected.length ||
-              generating ||
-              nvidiaReady?.configured === false
-            }
-            onClick={runAnalysis}
-          >
-            {generating ? 'Generating…' : 'Generate Analysis'}
-          </button>
-          <button
-            className="btn"
-            disabled={!selected.length || graphStatus === 'generating'}
-            onClick={generateGraph}
-          >
-            {graphStatus === 'generating' ? 'Generating Graph…' : 'Generate Graph'}
-          </button>
-
-          {selected.length > 1 && (
-            <select
-              className="select-inline"
-              value={graphAnalysisCaseId || selected[0] || ''}
-              onChange={(e) => {
-                setGraphAnalysisCaseId(e.target.value)
-                setGraphAnalysis(null)
-              }}
+          <div className="analysis-action-block">
+            <button
+              className="btn btn-primary"
+              disabled={
+                !selected.length ||
+                generating ||
+                nvidiaReady?.configured === false
+              }
+              onClick={runAnalysis}
             >
-              {selected.map((caseId) => (
-                <option key={caseId} value={caseId}>
-                  Graph metrics: {caseId}
-                </option>
-              ))}
-            </select>
-          )}
-          <button
-            className="btn"
-            disabled={!selected.length || graphAnalysisLoading}
-            onClick={() => runGraphAnalysis()}
-          >
-            {graphAnalysisLoading ? 'Running Graph Analysis…' : 'Run Graph Analysis'}
-          </button>
+              {generating ? 'Generating…' : 'Generate Analysis'}
+            </button>
+          </div>
+
+          <div className={'analysis-progress-slot' + (generating ? ' is-active' : '')}>
+            {generating && <span className="analysis-progress-value">{analysisProgress}%</span>}
+          </div>
+
+          <div className="analysis-action-block">
+            <button
+              className="btn"
+              disabled={!selected.length || graphStatus === 'generating'}
+              onClick={generateGraph}
+            >
+              {graphStatus === 'generating' ? 'Generating Graph…' : 'Generate Graph'}
+            </button>
+          </div>
+
+          <div className={'analysis-progress-slot' + (graphStatus === 'generating' ? ' is-active' : '')}>
+            {graphStatus === 'generating' && <span className="analysis-progress-value">{graphProgress}%</span>}
+          </div>
+
+          <div className="analysis-action-block analysis-graph-controls">
+            {selected.length > 1 && (
+              <select
+                className="select-inline"
+                value={graphAnalysisCaseId || selected[0] || ''}
+                onChange={(e) => {
+                  setGraphAnalysisCaseId(e.target.value)
+                  setGraphAnalysis(null)
+                }}
+              >
+                {selected.map((caseId) => (
+                  <option key={caseId} value={caseId}>
+                    Graph metrics: {caseId}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              className="btn"
+              disabled={!selected.length || graphAnalysisLoading}
+              onClick={() => runGraphAnalysis()}
+            >
+              {graphAnalysisLoading ? 'Running Graph Analysis…' : 'Run Graph Analysis'}
+            </button>
+          </div>
 
           {selectedCases.length > 0 && (
-            <span className="muted small">
+            <span className="muted small analysis-current-selection">
               Analyzing: {selectedCases.map((c) => c.name).join(', ')}
             </span>
           )}
