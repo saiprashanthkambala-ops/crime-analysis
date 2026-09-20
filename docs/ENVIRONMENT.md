@@ -273,3 +273,8 @@ Implemented metrics:
 - Temporal summary — ordered timestamped events from the SQL evidence layer.
 
 The graph-analysis layer reports structural/evidence signals only. It does not calculate or display probability of guilt.
+
+
+## NVIDIA request timeout and connection reuse
+
+The backend defaults `NVIDIA_TIMEOUT_SECONDS` to 300 seconds (5 minutes) for long-running model responses. The NVIDIA OpenAI-compatible client is reused as a process-level client so its HTTP connection pool can reuse keep-alive connections across requests. Investigation chat already uses HTTP streaming so tokens can be delivered incrementally; a WebSocket is not required for the NVIDIA provider endpoint.
