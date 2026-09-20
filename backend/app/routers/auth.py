@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from collections import defaultdict, deque
@@ -55,14 +55,12 @@ class LoginBody(BaseModel):
     password: str
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+class LoginResponse(BaseModel):
     user: dict
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(request: Request, body: LoginBody, db: Session = Depends(get_db)):
+def login(response: Response, request: Request, body: LoginBody, db: Session = Depends(get_db)):
     _check_login_rate_limit(request, body.username)
     user = db.query(User).filter(User.username == body.username).first()
     if not user or not verify_password(body.password, user.password_hash):
@@ -72,7 +70,17 @@ def login(request: Request, body: LoginBody, db: Session = Depends(get_db)):
         raise HTTPException(403, "Account disabled")
     _clear_login_failures(request, body.username)
     log_audit(db, user.id, "login")
-    return TokenResponse(access_token=create_access_token(user), user=user.as_dict())
+    token = create_access_token(user)
+    response.set_cookie(
+        key="crime_analysis_session",
+        value=token,
+        httponly=True,
+        secure=settings.APP_ENV.lower() in {"production", "prod"},
+        samesite="lax",
+        path="/",
+        max_age=settings.JWT_EXPIRE_MINUTES * 60,
+    )
+    return LoginResponse(user=user.as_dict())
 
 
 @router.get("/me")
@@ -81,6 +89,12 @@ def me(user: User = Depends(get_current_user)):
 
 
 @router.post("/logout")
-def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def logout(response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     log_audit(db, user.id, "logout")
+    response.delete_cookie(
+        key="crime_analysis_session",
+        path="/",
+        secure=settings.APP_ENV.lower() in {"production", "prod"},
+        samesite="lax",
+    )
     return {"ok": True}
