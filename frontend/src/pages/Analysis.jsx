@@ -30,6 +30,8 @@ export default function Analysis() {
   const [graphAnalysisCaseId, setGraphAnalysisCaseId] = useState('')
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [analysisProgress, setAnalysisProgress] = useState(0)
+  const [graphProgress, setGraphProgress] = useState(0)
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState([])
   const [chatting, setChatting] = useState(false)
@@ -58,6 +60,24 @@ export default function Analysis() {
     () => cases.filter((c) => selected.includes(c.id)),
     [cases, selected]
   )
+
+  useEffect(() => {
+    if (!generating) return undefined
+    setAnalysisProgress(8)
+    const timer = window.setInterval(() => {
+      setAnalysisProgress((value) => value >= 92 ? value : Math.min(92, value + Math.max(1, Math.round((92 - value) * 0.12))))
+    }, 750)
+    return () => window.clearInterval(timer)
+  }, [generating])
+
+  useEffect(() => {
+    if (graphStatus !== 'generating') return undefined
+    setGraphProgress(8)
+    const timer = window.setInterval(() => {
+      setGraphProgress((value) => value >= 92 ? value : Math.min(92, value + Math.max(1, Math.round((92 - value) * 0.12))))
+    }, 650)
+    return () => window.clearInterval(timer)
+  }, [graphStatus])
 
   const toggleCase = (id) => {
     setSelected((prev) => {
@@ -90,6 +110,7 @@ export default function Analysis() {
       return
     }
     setErr('')
+    setGraphProgress(0)
     setGraphStatus('generating')
     try {
       const data = await withTimeout('/graph/generate', {
@@ -97,9 +118,12 @@ export default function Analysis() {
         body: JSON.stringify({ case_ids: selected }),
       })
       setGraph(data)
+      setGraphProgress(100)
       setGraphStatus(data.source || 'generated')
+      window.setTimeout(() => setGraphProgress(0), 700)
     } catch (e) {
       setGraph({ nodes: [], edges: [] })
+      setGraphProgress(0)
       setGraphStatus('unavailable')
       setErr(
         e.name === 'AbortError'
@@ -158,6 +182,7 @@ export default function Analysis() {
 
   const runAnalysis = async () => {
     setErr('')
+    setAnalysisProgress(0)
     setGenerating(true)
 
     try {
@@ -168,6 +193,8 @@ export default function Analysis() {
 
       setAnalysis(data.analysis || '')
       setContext(data.context || null)
+      setAnalysisProgress(100)
+      window.setTimeout(() => setAnalysisProgress(0), 700)
       void refreshSuspicious()
       const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
       if (firstGraphCase) {
@@ -185,6 +212,7 @@ export default function Analysis() {
       // Generate the selected-case graph explicitly after AI analysis.
       void generateGraph()
     } catch (e) {
+      setAnalysisProgress(0)
       setErr(
         e.name === 'AbortError'
           ? 'Analysis timed out after 5 minutes. Check NVIDIA_API_KEY and the backend server log.'
@@ -356,6 +384,11 @@ export default function Analysis() {
           >
             {generating ? 'Generating…' : 'Generate Analysis'}
           </button>
+
+          <div className={'analysis-progress-slot' + (analysisProgress ? ' is-active' : '')} aria-live="polite">
+            {analysisProgress ? <span>{analysisProgress}%</span> : null}
+          </div>
+
           <button
             className="btn"
             disabled={!selected.length || graphStatus === 'generating'}
@@ -363,6 +396,10 @@ export default function Analysis() {
           >
             {graphStatus === 'generating' ? 'Generating Graph…' : 'Generate Graph'}
           </button>
+
+          <div className={'analysis-progress-slot' + (graphProgress ? ' is-active' : '')} aria-live="polite">
+            {graphProgress ? <span>{graphProgress}%</span> : null}
+          </div>
 
           {selected.length > 1 && (
             <select
