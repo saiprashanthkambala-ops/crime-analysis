@@ -12,7 +12,9 @@ node_modules/
 frontend/dist/
 
 # Runtime data (generated)
-backend/crime_analysis.db
+backend/*.db
+backend/*.sqlite
+backend/*.sqlite3
 backend/data/synthetic/
 
 # Environment / secrets

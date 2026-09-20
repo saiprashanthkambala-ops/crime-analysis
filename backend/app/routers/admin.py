@@ -180,7 +180,7 @@ def assign_case_user(case_id: str, body: CaseAssignment,
 
 
 @router.get("/admin/stats")
-def stats(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def stats(user: User = Depends(require_admin), db: Session = Depends(get_db)):
     from ..models import Document, Entity, Event, Evidence, Person, Relationship
     return {
         "cases": db.query(Case).count(),
