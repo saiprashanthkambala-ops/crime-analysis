@@ -439,3 +439,200 @@
   color: #e5e7eb;
   border-color: #4b5563;
 }
+
+
+/* Light-theme feedback text contrast. Keep panel backgrounds/look unchanged. */
+[data-theme="light"] .analysis-page .info-box {
+  color: #075985 !important;
+}
+[data-theme="light"] .analysis-page .error-box {
+  color: #991b1b !important;
+}
+[data-theme="light"] .analysis-page .analysis-case-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  [data-theme="light"] .analysis-page .analysis-case-picker {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Analysis action spacing and compact percentage slots. */
+.analysis-page .analysis-actions {
+  column-gap: 10px;
+  row-gap: 10px;
+}
+.analysis-page .analysis-progress-slot {
+  flex: 0 0 64px;
+  min-width: 64px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+.analysis-page .analysis-progress-slot.is-active {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-2);
+}
+.analysis-page .analysis-actions > .btn-primary + .analysis-progress-slot {
+  margin-right: 2px;
+}
+.analysis-page .analysis-actions > .analysis-progress-slot + .btn {
+  margin-right: 2px;
+}
+
+/* System-admin account/access modal. */
+.user-profile-button {
+  cursor: pointer;
+  font: inherit;
+}
+.user-profile-button:hover {
+  border-color: var(--accent-2);
+}
+.account-access-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, .72);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+}
+.account-access-modal {
+  width: min(980px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .45);
+}
+.account-access-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+.account-access-head h3 {
+  margin: 2px 0 4px;
+  font-size: 19px;
+}
+.account-access-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-access-eyebrow {
+  color: var(--accent-2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.account-access-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+}
+.account-access-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 20px 20px;
+}
+.account-role-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.account-role-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-height: 132px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-2);
+}
+.account-role-card.is-active {
+  border-color: var(--accent-2);
+  background: var(--panel-2);
+}
+.account-role-title {
+  font-weight: 700;
+  color: var(--text);
+}
+.account-role-desc {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.account-role-card .btn {
+  margin-top: auto;
+}
+.account-section {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.account-section-title {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+.account-table-scroll {
+  overflow: auto;
+}
+.account-table-scroll .table {
+  margin: 0;
+  min-width: 760px;
+}
+.account-case-chip {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 10px;
+}
+.account-security-note {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .account-access-backdrop { padding: 12px; }
+  .account-access-body { padding-left: 14px; padding-right: 14px; }
+  .account-role-switcher { grid-template-columns: 1fr; }
+  .account-access-modal { max-height: calc(100vh - 24px); }
+}
