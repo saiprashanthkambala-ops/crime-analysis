@@ -10,10 +10,24 @@ DATA_DIR.mkdir(exist_ok=True)
 load_dotenv(BASE_DIR.parent / ".env")
 load_dotenv(BASE_DIR / ".env")
 
+
 class Settings:
     def __init__(self):
+        self.APP_ENV: str = os.getenv("APP_ENV", "development").strip().lower()
         self.DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'crime_analysis.db'}")
-        self.JWT_SECRET: str = os.getenv("JWT_SECRET", "crime-analysis-dev-secret-change-me-32bytes-minimum")
+        configured_jwt_secret = os.getenv("JWT_SECRET", "").strip()
+        default_jwt_secret = "crime-analysis-dev-secret-change-me-32bytes-minimum"
+
+        if self.APP_ENV in {"production", "prod"}:
+            if not configured_jwt_secret or configured_jwt_secret == default_jwt_secret:
+                raise RuntimeError(
+                    "JWT_SECRET must be explicitly configured with a strong random value "
+                    "when APP_ENV=production."
+                )
+            if len(configured_jwt_secret) < 32:
+                raise RuntimeError("JWT_SECRET must be at least 32 characters in production.")
+
+        self.JWT_SECRET: str = configured_jwt_secret or default_jwt_secret
         self.JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
         self.JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
 
@@ -34,5 +48,6 @@ class Settings:
         self.TESSERACT_CMD: str = os.getenv("TESSERACT_CMD", "tesseract")
         self.MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "25"))
         self.AUTO_SEED: bool = os.getenv("AUTO_SEED", "1") == "1"
+
 
 settings = Settings()
