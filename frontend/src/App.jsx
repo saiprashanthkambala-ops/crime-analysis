@@ -17,8 +17,9 @@ import Analysis from './pages/Analysis'
 import AdminPage from './pages/AdminPage'
 
 function RequireAuth({ children }) {
-  const { isAuthed } = useAuth()
+  const { isAuthed, sessionChecked } = useAuth()
   const location = useLocation()
+  if (!sessionChecked) return null
   if (!isAuthed) return <Navigate to="/login" state={{ from: location }} replace />
   return children
 }

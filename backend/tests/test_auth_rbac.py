@@ -7,6 +7,18 @@ def test_login_wrong_password(client):
     assert r.status_code == 401
 
 
+def test_login_sets_httponly_session_cookie(client):
+    r = client.post("/api/auth/login", json={"username": "investigator1", "password": "investor1"})
+    assert r.status_code == 200
+    assert "access_token" not in r.json()
+    cookie = r.cookies.get("crime_analysis_session")
+    assert cookie
+    set_cookie = r.headers.get("set-cookie", "").lower()
+    assert "httponly" in set_cookie
+    assert "samesite=lax" in set_cookie
+    assert client.get("/api/cases").status_code == 200
+
+
 def test_missing_token(client):
     assert client.get("/api/cases").status_code == 401
 

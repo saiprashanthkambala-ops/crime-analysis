@@ -44,9 +44,13 @@ def decode_token(token: str):
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    token = None
+    if auth.startswith("Bearer "):
+        token = auth.split(" ", 1)[1]
+    else:
+        token = request.cookies.get("crime_analysis_session")
+    if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
-    token = auth.split(" ", 1)[1]
     try:
         payload = decode_token(token)
     except jwt.ExpiredSignatureError:

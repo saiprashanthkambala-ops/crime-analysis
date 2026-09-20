@@ -1,5 +1,5 @@
-import { createContext, useContext, useState } from 'react'
-import { api, setToken, clearToken, getToken } from './api'
+import { createContext, useContext, useEffect, useState } from 'react'
+import { api, clearToken } from './api'
 
 const AuthContext = createContext(null)
 
@@ -7,13 +7,32 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('crime_analysis_user')) } catch { return null }
   })
+  const [sessionChecked, setSessionChecked] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    api('/auth/me')
+      .then((currentUser) => {
+        if (!active) return
+        localStorage.setItem('crime_analysis_user', JSON.stringify(currentUser))
+        setUser(currentUser)
+      })
+      .catch(() => {
+        if (!active) return
+        clearToken()
+        setUser(null)
+      })
+      .finally(() => {
+        if (active) setSessionChecked(true)
+      })
+    return () => { active = false }
+  }, [])
 
   const login = async (username, password) => {
     const data = await api('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     })
-    setToken(data.access_token)
     localStorage.setItem('crime_analysis_user', JSON.stringify(data.user))
     setUser(data.user)
     return data.user
@@ -26,7 +45,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthed: !!getToken() }}>
+    <AuthContext.Provider value={{ user, login, logout, isAuthed: sessionChecked && !!user, sessionChecked }}>
       {children}
     </AuthContext.Provider>
   )

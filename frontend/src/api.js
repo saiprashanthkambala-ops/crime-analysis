@@ -1,9 +1,6 @@
-const TOKEN_KEY = 'crime_analysis_token'
-
-export function getToken() { return localStorage.getItem(TOKEN_KEY) }
-export function setToken(token) { localStorage.setItem(TOKEN_KEY, token) }
+export function getToken() { return null }
+export function setToken(_) {}
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem('crime_analysis_user')
 }
 
@@ -11,7 +8,7 @@ export async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const token = getToken()
   if (token) headers['Authorization'] = 'Bearer ' + token
-  const res = await fetch('/api' + path, { ...options, headers })
+  const res = await fetch('/api' + path, { ...options, headers, credentials: 'include' })
   if (res.status === 401) {
     clearToken()
     if (window.location.pathname !== '/login') window.location.href = '/login'
@@ -37,12 +34,10 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
   )
 
   try {
-    const token = getToken()
     const res = await fetch('/api/analysis/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: 'Bearer ' + token } : {}),
       },
       body: JSON.stringify({
         case_ids: caseIds,
@@ -50,6 +45,7 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
         history: options.history || [],
       }),
       signal: controller.signal,
+      credentials: 'include',
     })
 
     if (res.status === 401) {
@@ -130,10 +126,9 @@ export class ApiError extends Error {
 
 function apiUpload(path, formData, onProgress) {
   return new Promise((resolve, reject) => {
-    const token = getToken()
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api' + path)
-    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token)
+    xhr.withCredentials = true
     if (onProgress) xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)) }
     xhr.onload = () => {
       let body = null
