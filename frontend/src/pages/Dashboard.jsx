@@ -14,19 +14,76 @@ const MetricIcon = ({ type }) => {
     documents: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h4M9 12h6M9 16h6" /></>,
     entities: <><circle cx="12" cy="12" r="3" /><circle cx="5" cy="7" r="2" /><circle cx="19" cy="7" r="2" /><circle cx="5" cy="18" r="2" /><circle cx="19" cy="18" r="2" /><path d="m9.5 10.3-3-1.8M14.5 10.3l3-1.8M9.5 13.7l-3 2M14.5 13.7l3 2" /></>,
   }
-  return <svg {...common}>{paths[type]}</svg>
+  return <svg {...common} className={'metric-icon metric-icon-' + type}>{paths[type]}</svg>
 }
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [rels, setRels] = useState(null)
+  const [cases, setCases] = useState([])
+  const [persons, setPersons] = useState([])
+  const [evidence, setEvidence] = useState([])
+  const [documents, setDocuments] = useState([])
+  const [entities, setEntities] = useState([])
   const [err, setErr] = useState('')
+  const [activeMetric, setActiveMetric] = useState(null)
 
   useEffect(() => {
-    Promise.all([api('/admin/stats'), api('/relationships')])
-      .then(([s, r]) => { setStats(s); setRels(r) })
+    Promise.all([
+      api('/admin/stats'),
+      api('/relationships'),
+      api('/cases'),
+      api('/persons'),
+      api('/evidence'),
+      api('/entities'),
+    ])
+      .then(([s, r, c, p, e, entityRows]) => {
+        setStats(s)
+        setRels(r)
+        setCases(c)
+        setPersons(p)
+        setEvidence(e)
+        setDocuments(c.flatMap((item) => (item.documents || []).map((doc) => ({
+          ...doc,
+          case_id: item.id,
+          case_name: item.name,
+        }))))
+        setEntities(entityRows)
+      })
       .catch((e) => setErr(e.message))
   }, [])
+
+  useEffect(() => {
+    if (!activeMetric) return undefined
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setActiveMetric(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [activeMetric])
+
+  const metricItems = {
+    cases,
+    persons,
+    relationships: rels || [],
+    evidence,
+    documents,
+    entities,
+  }
+
+  const metricMeta = {
+    cases: { title: 'Active Cases', description: 'Current cases available to the signed-in investigator.', icon: 'cases' },
+    persons: { title: 'Persons', description: 'People represented in the investigation data.', icon: 'persons' },
+    relationships: { title: 'Relationships', description: 'Stored evidence-backed person-to-person relationships.', icon: 'relationships' },
+    evidence: { title: 'Evidence Records', description: 'Evidence records currently stored in the investigation database.', icon: 'evidence' },
+    documents: { title: 'Documents', description: 'Imported source documents associated with cases.', icon: 'documents' },
+    entities: { title: 'Extracted Entities', description: 'Entities extracted and normalized from imported source material.', icon: 'entities' },
+  }
 
   if (err) return <ErrorBox message={err} />
   if (!stats || !rels) return <Spinner label="Loading dashboard…" />
@@ -73,13 +130,162 @@ export default function Dashboard() {
       </div>
 
       <div className="stat-grid">
-        <StatCard label="Active Cases" value={stats.cases} icon={<MetricIcon type="cases" />} />
-        <StatCard label="Persons" value={stats.persons} icon={<MetricIcon type="persons" />} />
-        <StatCard label="Relationships" value={stats.relationships} icon={<MetricIcon type="relationships" />} />
-        <StatCard label="Evidence Records" value={stats.evidence} icon={<MetricIcon type="evidence" />} />
-        <StatCard label="Documents" value={stats.documents} icon={<MetricIcon type="documents" />} />
-        <StatCard label="Extracted Entities" value={stats.entities} icon={<MetricIcon type="entities" />} />
+        <StatCard label="Active Cases" value={stats.cases} icon={<MetricIcon type="cases" />} onClick={() => setActiveMetric('cases')} />
+        <StatCard label="Persons" value={stats.persons} icon={<MetricIcon type="persons" />} onClick={() => setActiveMetric('persons')} />
+        <StatCard label="Relationships" value={stats.relationships} icon={<MetricIcon type="relationships" />} onClick={() => setActiveMetric('relationships')} />
+        <StatCard label="Evidence Records" value={stats.evidence} icon={<MetricIcon type="evidence" />} onClick={() => setActiveMetric('evidence')} />
+        <StatCard label="Documents" value={stats.documents} icon={<MetricIcon type="documents" />} onClick={() => setActiveMetric('documents')} />
+        <StatCard label="Extracted Entities" value={stats.entities} icon={<MetricIcon type="entities" />} onClick={() => setActiveMetric('entities')} />
       </div>
+
+      {activeMetric && (
+        <div
+          className="dashboard-metric-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setActiveMetric(null)
+          }}
+        >
+          <div
+            className="dashboard-metric-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dashboard-metric-title"
+          >
+            <div className="dashboard-metric-modal-head">
+              <div>
+                <div className="dashboard-metric-eyebrow">Dashboard details</div>
+                <h3 id="dashboard-metric-title">{metricMeta[activeMetric].title}</h3>
+                <p>{metricMeta[activeMetric].description}</p>
+              </div>
+              <button
+                type="button"
+                className="dashboard-metric-close"
+                onClick={() => setActiveMetric(null)}
+                aria-label="Close details"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="dashboard-metric-modal-body">
+              <div className="dashboard-metric-summary">
+                <div className={'dashboard-metric-icon metric-icon-' + metricMeta[activeMetric].icon}>
+                  <MetricIcon type={metricMeta[activeMetric].icon} />
+                </div>
+                <div>
+                  <div className="dashboard-metric-count">{(metricItems[activeMetric] || []).length}</div>
+                  <div className="muted small">{metricMeta[activeMetric].title}</div>
+                </div>
+              </div>
+
+              {activeMetric === 'cases' && (
+                <div className="dashboard-detail-list">
+                  {cases.map((item) => (
+                    <div className="dashboard-detail-row" key={item.id}>
+                      <div>
+                        <strong>{item.name}</strong>
+                        <div className="muted small mono">{item.id}</div>
+                      </div>
+                      <span className={'badge status-' + String(item.status || '').toLowerCase()}>{item.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeMetric === 'persons' && (
+                <div className="dashboard-detail-list">
+                  {persons.map((item) => (
+                    <div className="dashboard-detail-row" key={item.person_id}>
+                      <div>
+                        <strong>{item.name}</strong>
+                        <div className="muted small mono">{item.person_id}</div>
+                      </div>
+                      <span className="dashboard-detail-type">Person</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeMetric === 'relationships' && (
+                <div className="dashboard-detail-list">
+                  {rels.slice(0, 30).map((item) => (
+                    <div className="dashboard-detail-row dashboard-detail-row-stack" key={item.id}>
+                      <div>
+                        <strong>{item.person_a?.name} ↔ {item.person_b?.name}</strong>
+                        <div className="muted small">
+                          {(item.signals?.calls || 0)} calls · {(item.signals?.transactions || 0)} txns · {(item.signals?.location_overlaps || 0)} location overlaps
+                        </div>
+                      </div>
+                      <div className="dashboard-detail-side">
+                        <span className="badge status-badge">{item.strength || '—'}</span>
+                        <span className="mono small">score {item.score ?? '—'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeMetric === 'evidence' && (
+                <div className="dashboard-detail-list">
+                  {evidence.map((item) => (
+                    <div className="dashboard-detail-row dashboard-detail-row-stack" key={item.id}>
+                      <div>
+                        <strong>{item.type || 'Evidence record'}</strong>
+                        <div className="muted small">{item.source || 'Source not specified'}</div>
+                      </div>
+                      <div className="dashboard-detail-side">
+                        <span className="muted small">{item.date || 'Date unavailable'}</span>
+                        <span className="mono small">{item.id}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeMetric === 'documents' && (
+                <div className="dashboard-detail-list">
+                  {documents.map((item) => (
+                    <div className="dashboard-detail-row dashboard-detail-row-stack" key={item.id}>
+                      <div>
+                        <strong>{item.filename}</strong>
+                        <div className="muted small">{item.case_name} · {item.file_type || 'file'}</div>
+                      </div>
+                      <div className="dashboard-detail-side">
+                        <span className="badge status-badge">{item.status}</span>
+                        <span className="mono small">{item.id}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {activeMetric === 'entities' && (
+                <div className="dashboard-detail-list">
+                  {entities.slice(0, 60).map((item) => (
+                    <div className="dashboard-detail-row dashboard-detail-row-stack" key={item.id}>
+                      <div>
+                        <strong>{item.value || 'Unknown value'}</strong>
+                        <div className="muted small">{item.case_id || 'No case'} · {item.normalized || 'Not normalized'}</div>
+                      </div>
+                      <span className="dashboard-detail-type">{item.type || 'Entity'}</span>
+                    </div>
+                  ))}
+                  {entities.length > 60 && (
+                    <div className="empty muted small">
+                      Showing 60 of {entities.length} extracted entities.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {metricItems[activeMetric]?.length === 0 && (
+                <div className="empty muted">No records are available for this metric.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="two-col">
         <Panel title="Top Relationships" actions={<Link className="link" to="/relationships">View all →</Link>}>
