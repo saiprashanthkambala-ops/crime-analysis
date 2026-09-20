@@ -30,6 +30,18 @@ class Settings:
         self.JWT_SECRET: str = configured_jwt_secret or default_jwt_secret
         self.JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
         self.JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
+        self.CORS_ORIGINS: list[str] = [
+            origin.strip()
+            for origin in os.getenv(
+                "CORS_ORIGINS",
+                "http://localhost:5173,http://127.0.0.1:5173",
+            ).split(",")
+            if origin.strip()
+        ]
+        self.LOGIN_RATE_LIMIT_ATTEMPTS: int = int(os.getenv("LOGIN_RATE_LIMIT_ATTEMPTS", "5"))
+        self.LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = int(
+            os.getenv("LOGIN_RATE_LIMIT_WINDOW_SECONDS", "900")
+        )
 
         self.NEO4J_URI: str = os.getenv("NEO4J_URI", "")
         self.NEO4J_USERNAME: str = os.getenv("NEO4J_USERNAME", "")
