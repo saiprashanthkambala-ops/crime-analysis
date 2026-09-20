@@ -241,12 +241,23 @@ def reconcile_case_in_neo4j(db: Session, case_id: str) -> dict:
         raise ValueError("Case not found")
 
     supported_entity_types = ["PHONE", "VEHICLE", "BANK_ACCOUNT", "LOCATION"]
-    sql_counts = {
-        "documents": db.query(Document).filter(Document.case_id == case_id).count(),
-        "entities": db.query(Entity).filter(
+    # Neo4j intentionally projects identifier entities by normalized key, so
+    # duplicate source mentions of the same value become one graph node.
+    projected_entities = (
+        db.query(Entity.entity_type, Entity.normalized_value)
+        .filter(
             Entity.case_id == case_id,
             Entity.entity_type.in_(supported_entity_types),
-        ).count(),
+            Entity.normalized_value.isnot(None),
+            Entity.normalized_value != "",
+        )
+        .distinct()
+        .all()
+    )
+
+    sql_counts = {
+        "documents": db.query(Document).filter(Document.case_id == case_id).count(),
+        "entities": len(projected_entities),
         "events": db.query(Event).filter(Event.case_id == case_id).count(),
         "evidence": db.query(Evidence).filter(Evidence.case_id == case_id).count(),
     }
@@ -267,14 +278,20 @@ def reconcile_case_in_neo4j(db: Session, case_id: str) -> dict:
     person_ids.update(row[0] for row in linked)
     if person_ids:
         sql_counts["persons"] = db.query(Person).filter(Person.id.in_(person_ids)).count()
-        sql_counts["relationships"] = (
-            db.query(Relationship)
+        relationship_pairs = (
+            db.query(Relationship.person_a_id, Relationship.person_b_id)
             .filter(
                 Relationship.person_a_id.in_(person_ids),
                 Relationship.person_b_id.in_(person_ids),
             )
-            .count()
+            .all()
         )
+        # Neo4j projects one CONNECTED_TO edge per unordered person pair.
+        sql_counts["relationships"] = len({
+            tuple(sorted((a, b)))
+            for a, b in relationship_pairs
+            if a and b and a != b
+        })
     else:
         sql_counts["persons"] = 0
         sql_counts["relationships"] = 0
