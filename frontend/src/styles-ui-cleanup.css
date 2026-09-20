@@ -449,6 +449,25 @@
   color: #991b1b;
 }
 
+/* Keep the Neo4j sync status visually separated from the case cards. */
+.analysis-page .analysis-case-picker + .info-box {
+  margin-top: 12px;
+}
+
+/* Role-specific login context in the shared login screen. */
+.login-role-context {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--accent-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 /* Give the case cards a clearer visual separation. */
 .analysis-page .analysis-case-picker {
   gap: 12px;
