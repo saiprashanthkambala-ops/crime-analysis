@@ -31,7 +31,11 @@ def _provider_error(prefix: str, exc: APIStatusError) -> NVIDIAClientError:
     return NVIDIAClientError(f"{prefix}{suffix}. Check the NVIDIA API key, model name, quota, or endpoint.")
 
 
-def chat(messages: list[dict[str, str]]) -> Any:
+def chat(
+    messages: list[dict[str, str]],
+    stream: bool = False,
+    enable_thinking: bool = True,
+) -> Any:
     """Make one bounded, non-streaming NVIDIA chat request."""
     try:
         return _client().chat.completions.create(
@@ -40,7 +44,8 @@ def chat(messages: list[dict[str, str]]) -> Any:
             temperature=settings.NVIDIA_TEMPERATURE,
             top_p=settings.NVIDIA_TOP_P,
             max_tokens=settings.NVIDIA_MAX_TOKENS,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+            stream=stream,
         )
     except APITimeoutError as exc:
         raise NVIDIAClientError(

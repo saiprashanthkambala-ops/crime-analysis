@@ -18,7 +18,7 @@ class InvestigationToolResult(dict):
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"s+", " ", re.sub(r"[^a-z0-9 ]", " ", text.lower())).strip()
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", text.lower())).strip()
 
 
 def _relationship_rows(context: dict) -> list[dict[str, Any]]:

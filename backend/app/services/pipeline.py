@@ -64,11 +64,16 @@ def _extract_pdf_text(content):
 
 def _ocr_text(content):
     """Run Tesseract OCR when available; returns (text, used_ocr)."""
-    if not shutil.which(settings.TESSERACT_CMD):
+    cmd = settings.TESSERACT_CMD
+    cmd_exists = bool(shutil.which(cmd) or (Path(cmd).is_file() and os.access(cmd, os.X_OK | os.R_OK)))
+    if not cmd_exists:
         return "", False
     try:
+        args = [cmd, "stdin", "stdout"]
+        if sys.platform == "win32" and Path(cmd).is_file() and not cmd.lower().endswith((".exe", ".bat", ".cmd")):
+            args = [sys.executable, cmd, "stdin", "stdout"]
         proc = subprocess.run(
-            [settings.TESSERACT_CMD, "stdin", "stdout"],
+            args,
             input=content, capture_output=True, timeout=60,
         )
         if proc.returncode == 0:

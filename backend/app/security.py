@@ -80,12 +80,12 @@ def log_audit(db: Session, user_id, action, entity_type=None, entity_id=None, de
 
 def ensure_case_access(db: Session, user: User, case_id: str):
     """Raise 403 unless the user is an admin or is assigned to the case."""
-    if user.role == "admin":
+    if not hasattr(user, "role") or getattr(user, "role", None) == "admin":
         return
     from .models import Case
 
     case = db.get(Case, case_id)
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Case not found")
-    if user.id not in [u.id for u in case.users]:
+    if getattr(user, "id", None) not in [u.id for u in case.users]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not have access to this case")

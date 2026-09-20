@@ -19,15 +19,26 @@ async def lifespan(app: FastAPI):
     ensure_column_migrations()
     if settings.AUTO_SEED:
         run_seed()
-    init_neo4j()
-    if neo4j_status().get("connected"):
-        try:
-            initialize_schema()
-        except Exception as exc:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).warning("Neo4j schema initialization failed: %s", exc)
+    try:
+        init_neo4j()
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("Neo4j startup check failed: %s", exc)
+    try:
+        if neo4j_status().get("connected"):
+            try:
+                initialize_schema()
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning("Neo4j schema initialization failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("Neo4j status check failed: %s", exc)
     yield
-    close_driver()
+    try:
+        close_driver()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="Crime Analysis API", version="0.1.0", lifespan=lifespan)

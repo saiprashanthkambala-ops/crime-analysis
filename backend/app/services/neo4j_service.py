@@ -88,10 +88,15 @@ def init_neo4j() -> None:
         return
     try:
         get_driver()
-        verify_connectivity()
-        logger.info("Neo4j connected.")
+        status = neo4j_status()
+        if status.get("connected"):
+            logger.info("Neo4j connected.")
+        else:
+            logger.warning("Neo4j startup check failed: %s", status.get("detail", "unavailable"))
     except (Neo4jConfigError, Neo4jConnectionError) as exc:
         logger.warning("Neo4j startup check failed: %s", exc)
+    except Exception as exc:
+        logger.warning("Neo4j startup check failed: %s", redact_secrets(exc))
 
 def _run_query(query: str, parameters: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
     def execute(driver):
@@ -104,6 +109,8 @@ def _run_query(query: str, parameters: Optional[dict[str, Any]] = None) -> list[
         return execute(driver)
     except AuthError as exc:
         raise Neo4jConnectionError("Neo4j authentication failed (check NEO4J_USERNAME / NEO4J_PASSWORD).", reason="auth_error", detail=redact_secrets(exc)) from exc
+    except ValueError as exc:
+        raise Neo4jConnectionError("Neo4j is unavailable (address resolution failed): " + redact_secrets(exc), reason="unavailable", detail=redact_secrets(exc)) from exc
     except (ServiceUnavailable, SessionExpired, DriverError, OSError, TimeoutError, ConnectionError) as exc:
         # Aura/cloud connections can be reset while a pooled driver still
         # points at a dead connection. Recreate the driver once and retry.
@@ -111,7 +118,19 @@ def _run_query(query: str, parameters: Optional[dict[str, Any]] = None) -> list[
         close_driver()
         try:
             return execute(get_driver())
-        except (ServiceUnavailable, SessionExpired, DriverError, OSError, TimeoutError, ConnectionError) as retry_exc:
+        except (ServiceUnavailable, SessionExpired, ValueError) as retry_exc:
+            raise Neo4jConnectionError(
+                "Neo4j is unavailable.",
+                reason="unavailable",
+                detail=redact_secrets(retry_exc),
+            ) from retry_exc
+        except DriverError as retry_exc:
+            raise Neo4jConnectionError(
+                "Neo4j connection error.",
+                reason="connection_error",
+                detail=redact_secrets(retry_exc),
+            ) from retry_exc
+        except Exception as retry_exc:
             raise Neo4jConnectionError(
                 "Neo4j connection error after retry.",
                 reason="connection_error",
@@ -119,6 +138,8 @@ def _run_query(query: str, parameters: Optional[dict[str, Any]] = None) -> list[
             ) from retry_exc
     except Neo4jError as exc:
         raise Neo4jConnectionError("Neo4j rejected the query.", reason="query_error", detail=redact_secrets(exc)) from exc
+    except Exception as exc:
+        raise Neo4jConnectionError("Neo4j error: " + redact_secrets(exc), reason="connection_error", detail=redact_secrets(exc)) from exc
 
 def run_read_query(query: str, parameters: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
     return _run_query(query, parameters)
@@ -139,6 +160,8 @@ def neo4j_status() -> dict[str, Any]:
         return {"connected": False, "status": "not_configured", "detail": "Set NEO4J_URI, NEO4J_USERNAME and NEO4J_PASSWORD."}
     try:
         info = verify_connectivity()
+        return {"connected": True, "status": "connected", "latency_ms": info["latency_ms"]}
     except Neo4jConnectionError as exc:
         return {"connected": False, "status": "unavailable", "reason": exc.reason, "detail": str(exc)}
-    return {"connected": True, "status": "connected", "latency_ms": info["latency_ms"]}
+    except Exception as exc:
+        return {"connected": False, "status": "unavailable", "reason": "connection_error", "detail": redact_secrets(exc)}

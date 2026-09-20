@@ -115,10 +115,36 @@ def _graph(case_ids: list[str]) -> tuple[nx.Graph, dict[str, dict]]:
     return graph, {n: graph.nodes[n] for n in graph.nodes}
 
 
-def _pagerank_weighted(graph: nx.Graph) -> dict[str, float]:
+def _pagerank_weighted(graph: nx.Graph, alpha: float = 0.85, max_iter: int = 100, tol: float = 1e-6) -> dict[str, float]:
     if graph.number_of_nodes() == 0:
         return {}
-    return nx.pagerank(graph, weight="score", alpha=0.85, max_iter=100)
+    try:
+        return nx.pagerank(graph, weight="score", alpha=alpha, max_iter=max_iter)
+    except (ModuleNotFoundError, ImportError, Exception):
+        N = len(graph)
+        if N == 0:
+            return {}
+        M = graph.to_directed() if not graph.is_directed() else graph
+        x = dict.fromkeys(M, 1.0 / N)
+        dangling_nodes = [n for n in M if sum(d.get("score", 1.0) for _, _, d in M.edges(n, data=True)) == 0]
+        for _ in range(max_iter):
+            xlast = x
+            x = dict.fromkeys(xlast.keys(), 0.0)
+            danglesum = alpha * sum(xlast[n] for n in dangling_nodes)
+            for n in M:
+                total_out = sum(d.get("score", 1.0) for _, _, d in M.edges(n, data=True))
+                if total_out > 0:
+                    for _, nbr, d in M.edges(n, data=True):
+                        wt = d.get("score", 1.0)
+                        x[nbr] += alpha * xlast[n] * (wt / total_out)
+                x[n] += danglesum * (1.0 / N) + (1.0 - alpha) / N
+            err = sum(abs(x[n] - xlast[n]) for n in x)
+            if err < N * tol:
+                break
+        s = sum(x.values())
+        if s > 0:
+            return {k: float(v / s) for k, v in x.items()}
+        return {k: float(v) for k, v in x.items()}
 
 
 def _communities(graph: nx.Graph) -> list[dict[str, Any]]:
