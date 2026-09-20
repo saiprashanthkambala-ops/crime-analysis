@@ -23,6 +23,12 @@ function RequireAuth({ children }) {
   return children
 }
 
+function RequireAdmin({ children }) {
+  const { user } = useAuth()
+  if (user?.role !== 'admin') return <Navigate to="/" replace />
+  return children
+}
+
 export default function App() {
   return (
     <Routes>
@@ -41,7 +47,7 @@ export default function App() {
         <Route path="/timeline" element={<TimelinePage />} />
         <Route path="/graph" element={<GraphPage />} />
         <Route path="/analysis" element={<Analysis />} />
-        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin" element={<RequireAdmin><AdminPage /></RequireAdmin>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
