@@ -29,7 +29,7 @@ class Settings:
         self.NVIDIA_MAX_TOKENS: int = int(os.getenv("NVIDIA_MAX_TOKENS", "1024"))
         self.NVIDIA_ENABLE_THINKING: bool = os.getenv("NVIDIA_ENABLE_THINKING", "0") == "1"
         self.NVIDIA_REASONING_BUDGET: int = int(os.getenv("NVIDIA_REASONING_BUDGET", "1024"))
-        self.NVIDIA_TIMEOUT_SECONDS: float = float(os.getenv("NVIDIA_TIMEOUT_SECONDS", "120"))
+        self.NVIDIA_TIMEOUT_SECONDS: float = float(os.getenv("NVIDIA_TIMEOUT_SECONDS", "300"))
 
         self.TESSERACT_CMD: str = os.getenv("TESSERACT_CMD", "tesseract")
         self.MAX_UPLOAD_MB: int = int(os.getenv("MAX_UPLOAD_MB", "25"))
