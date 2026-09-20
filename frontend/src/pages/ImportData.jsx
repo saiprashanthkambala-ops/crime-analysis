@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import {
   api, ApiError, getDocStatus, getImports, importDatasets, importPreflight, retryImport,
 } from '../api'
+import { useI18n } from '../i18n'
 import { Spinner, ErrorBox, Panel, StatCard } from '../components/ui'
 
 /* ------------------------------------------------------------------ config */
@@ -20,22 +21,22 @@ const STAGE_LABELS = {
 /* Canonical Crime Analysis fields offered for CSV column mapping (mirrors
    backend/app/services/dataset_import.py). */
 const MAPPING_GROUPS = [
-  { label: 'Call records (CDR)', fields: [
-    ['caller_name', 'Caller name'], ['caller_phone', 'Caller phone'],
-    ['callee_name', 'Receiver/callee name'], ['callee_phone', 'Receiver/callee phone'],
-    ['duration', 'Call duration'],
+  { labelKey: 'group_cdr', fields: [
+    ['caller_name', 'field_caller_name'], ['caller_phone', 'field_caller_phone'],
+    ['callee_name', 'field_callee_name'], ['callee_phone', 'field_callee_phone'],
+    ['duration', 'field_call_duration'],
   ] },
-  { label: 'Transactions / banking', fields: [
-    ['sender_name', 'Sender name'], ['sender_account', 'Sender account'],
-    ['receiver_name', 'Receiver name'], ['receiver_account', 'Receiver account'],
-    ['amount', 'Transaction amount'], ['transaction_id', 'Transaction ID'],
+  { labelKey: 'group_banking', fields: [
+    ['sender_name', 'field_sender_name'], ['sender_account', 'field_sender_account'],
+    ['receiver_name', 'field_receiver_name'], ['receiver_account', 'field_receiver_account'],
+    ['amount', 'field_amount'], ['transaction_id', 'field_transaction_id'],
   ] },
-  { label: 'Person & property', fields: [
-    ['person_name', 'Person name'], ['phone', 'Phone number'], ['vehicle', 'Vehicle'],
-    ['account', 'Bank account'], ['location', 'Location'],
+  { labelKey: 'group_person_property', fields: [
+    ['person_name', 'field_person_name'], ['phone', 'field_phone'], ['vehicle', 'field_vehicle'],
+    ['account', 'field_account'], ['location', 'field_location'],
   ] },
-  { label: 'Date & time', fields: [
-    ['date', 'Date'], ['time', 'Time'], ['timestamp', 'Date/time (single column)'],
+  { labelKey: 'group_datetime', fields: [
+    ['date', 'field_date'], ['time', 'field_time'], ['timestamp', 'field_timestamp'],
   ] },
 ]
 
@@ -63,6 +64,7 @@ function quickIssues(f) {
 
 /* -------------------------------------------------------------- Mapping UI */
 function MappingEditor({ columns, mapping, onChange }) {
+  const { t } = useI18n()
   const set = (field, col) => {
     const next = { ...mapping }
     if (col === '') {
@@ -76,22 +78,20 @@ function MappingEditor({ columns, mapping, onChange }) {
   }
   return (
     <div className="mapping-editor">
-      <div className="muted small">Original CSV values are always preserved — mapped
-        columns feed the Crime Analysis extraction pipeline (auto-detected where possible).
-      </div>
+      <div className="muted small">{t('mapping_intro_desc')}</div>
       {MAPPING_GROUPS.map((group) => (
-        <div key={group.label} className="mapping-group">
-          <div className="mapping-group-label">{group.label}</div>
-          {group.fields.map(([field, label]) => {
+        <div key={group.labelKey} className="mapping-group">
+          <div className="mapping-group-label">{t(group.labelKey)}</div>
+          {group.fields.map(([field, labelKey]) => {
             const value = mapping[field] || ''
             return (
               <div key={field} className="mapping-row">
-                <label className="mapping-field">{label}</label>
+                <label className="mapping-field">{t(labelKey)}</label>
                 <select
                   value={value}
                   onChange={(e) => set(field, e.target.value)}
                 >
-                  <option value="">— not mapped —</option>
+                  <option value="">{t('not_mapped_option')}</option>
                   {columns.map((c, i) => (
                     <option key={`${c}-${i}`} value={c}>[{i}] {c}</option>
                   ))}
@@ -239,11 +239,11 @@ export default function ImportData() {
       const active = h.filter((d) => !TERMINAL.has(d.status))
       if (!active.length && busyRef.current === 'processing') {
         setBusy('')
-        setMessage('Import batch finished.')
+        setMessage(t('import_batch_finished'))
         setLastImport(null)
       }
     }
-  }, [])
+  }, [t])
 
   const waitDoc = useCallback(async (docId) => {
     for (let i = 0; i < 200; i++) {
@@ -254,104 +254,95 @@ export default function ImportData() {
     return null
   }, [])
 
-  useEffect(() => {
-    if (busy !== 'processing') return
-    const timer = setInterval(() => {
-      if (caseIdRef.current) pollHistory(caseIdRef.current, { untilDone: true })
-    }, 1200)
-    return () => clearInterval(timer)
-  }, [busy, pollHistory])
+  const validCount = files.filter((f) => {
+    const r = resultsByKey[fileKey(f)]
+    return r && r.ok
+  }).length
 
-  /* ------------------------------------------------------ do the import */
+  const pendingCount = files.length - Object.keys(resultsByKey).length
+
+  /* ------------------------------------------------------------ import */
   const doImport = async () => {
-    if (!caseId || busy) return
-    setError(''); setPerFileErrors([]); setMessage(''); setLastImport(null)
-    const selected = files.filter((f) => {
-      const r = pre[fileKey(f)]
-      return r && r.state === 'done' && r.ok
-    })
-    if (!selected.length) return
-    setBusy('upload'); setProgress(0)
-    const order = selected.map((f) => fileKey(f))
-    const mappingArr = order.map((k) => mappings[k] || {})
+    if (!caseId || !files.length || busy) return
+    const eligible = files.filter((f) => (resultsByKey[fileKey(f)] || {}).ok)
+    if (!eligible.length) {
+      setError(t('pass_validation_first'))
+      return
+    }
+
+    setBusy('upload')
+    setProgress(0)
+    setError('')
+    setMessage('')
+    setPerFileErrors([])
+
+    // assemble mappings matching backend: [{ filename, mapping: {...} }]
+    const mappingPayload = eligible
+      .map((f) => {
+        const k = fileKey(f)
+        const m = mappings[k]
+        return m && Object.keys(m).length > 0 ? { filename: f.name, mapping: m } : null
+      })
+      .filter(Boolean)
+
     try {
-      const res = await importDatasets(caseId, selected, mappingArr, setProgress)
-      const ids = (res.imports || []).map((d) => d.id)
+      const resp = await importDatasets(caseId, eligible, mappingPayload, (pct) => {
+        setProgress(pct)
+      })
       setBusy('processing')
-      setProgress(100)
-      setMessage(res.imports.length
-        ? `${res.imports.length} file${res.imports.length > 1 ? 's' : ''} accepted — processing now…`
-        : 'Import finished.')
-      setLastImport({ ids, count: res.imports.length, ts: Date.now() })
-      await pollHistory(caseId, { untilDone: true })
-      setFiles([]); setPre({}); setMappings({})
-    } catch (e) {
+      setLastImport({
+        ids: (resp.documents || []).map((d) => d.id),
+        count: (resp.documents || []).length,
+      })
+      // Clear queue for successfully imported files
+      setFiles([])
+      setPre({})
+      setMappings({})
+      await loadHistory()
+    } catch (err) {
       setBusy('')
-      if (e instanceof ApiError && e.body && Array.isArray(e.body.errors)) {
-        setError(e.message)
-        setPerFileErrors(e.body.errors)
+      if (err instanceof ApiError && err.body && Array.isArray(err.body.errors)) {
+        setError(err.message)
+        setPerFileErrors(err.body.errors)
       } else {
-        setError(e.message)
+        setError(err.message || t('import_failed'))
       }
     }
   }
 
-  /* ------------------------------------------------------ retry one file */
   const doRetry = async (doc) => {
-    if (retrying[doc.id]) return
-    setRetrying((r) => ({ ...r, [doc.id]: true }))
-    setError('')
+    setRetrying((old) => ({ ...old, [doc.id]: true }))
     try {
       await retryImport(doc.id)
-      setMessage(`Retrying ${doc.filename}…`)
-      const st = await waitDoc(doc.id)
-      setMessage(st && st.status === 'completed'
-        ? `${doc.filename} completed after retry.` : `Retry of ${doc.filename} finished.`)
-      if (caseIdRef.current) pollHistory(caseIdRef.current)
-    } catch (e) {
-      setError(e.message)
+      await loadHistory()
+    } catch (err) {
+      setError(err.message)
     } finally {
-      setRetrying((r) => ({ ...r, [doc.id]: false }))
+      setRetrying((old) => { const c = { ...old }; delete c[doc.id]; return c })
     }
   }
 
-  /* ------------------------------------- expandable per-import stage log */
   const toggleStages = async (doc) => {
-    const open = !expanded[doc.id]
-    setExpanded((old) => ({ ...old, [doc.id]: open }))
-    if (open && !stages[doc.id]) {
+    const willOpen = !expanded[doc.id]
+    setExpanded((old) => ({ ...old, [doc.id]: willOpen }))
+    if (willOpen && !stages[doc.id]) {
       try {
-        const st = await getDocStatus(doc.id)
-        setStages((old) => ({ ...old, [doc.id]: st.jobs || [] }))
-      } catch (e) { /* endpoint may be unavailable; nothing to show */ }
+        const info = await getDocStatus(doc.id)
+        setStages((old) => ({ ...old, [doc.id]: info.jobs || [] }))
+      } catch (_) {}
     }
   }
-
-  /* ------------------------------------------------------ derived values */
-  const resultsByKey = useMemo(() => {
-    const out = {}
-    files.forEach((f) => { const k = fileKey(f); out[k] = pre[k] || null })
-    return out
-  }, [files, pre])
-
-  const validCount = useMemo(
-    () => files.filter((f) => { const r = pre[fileKey(f)]; return r && r.ok }).length,
-    [files, pre],
-  )
-  const pendingCount = files.filter((f) => {
-    const r = pre[fileKey(f)]; return !r || r.state === 'pending'
-  }).length
 
   const caseName = cases && caseId
     ? (cases.find((c) => c.id === caseId) || {}).name : null
 
   if (error && !files.length && !history) return <ErrorBox message={error} />
-  if (!cases) return <Spinner label="Loading cases…" />
+  if (!cases) return <Spinner label={t('loading_cases')} />
   if (!cases.length) {
     return (
       <div className="page">
-        <h2>Dataset Importer</h2>
-        <ErrorBox message="You do not have access to any cases yet. Ask an administrator to assign you to a case." />
+        <h2>{t('dataset_importer')}</h2>
+        <ErrorBox message={t('no_cases_access_warning')} />
       </div>
     )
   }
@@ -362,30 +353,28 @@ export default function ImportData() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h2>Dataset Importer</h2>
+          <h2>{t('dataset_importer')}</h2>
           <p className="muted">
-            Import investigation datasets — PDF (incl. scanned/OCR), CSV, JSON, TXT —
-            and run them through the Crime Analysis pipeline. Data is always treated as
-            evidence to be validated, never as automatically true.
+            {t('dataset_importer_desc')}
           </p>
         </div>
-        <Link className="btn btn-outline" to={`/cases/${caseId}`}>← Back to case</Link>
+        <Link className="btn btn-outline" to={`/cases/${caseId}`}>{t('back_to_case')}</Link>
       </div>
 
       {/* target case */}
-      <Panel title="1 · Target case">
+      <Panel title={t('step_target_case')}>
         <div className="case-picker">
-          <label>Case</label>
+          <label>{t('case_select_label')}</label>
           <select value={caseId || ''} onChange={(e) => { setCaseId(e.target.value) }}
             className="select-inline" disabled={!!busy}>
             {cases.map((c) => <option key={c.id} value={c.id}>{c.id} — {c.name}</option>)}
           </select>
-          {caseName && <span className="muted small">All records stay isolated to this case.</span>}
+          {caseName && <span className="muted small">{t('records_isolated_note')}</span>}
         </div>
       </Panel>
 
       {/* dropzone */}
-      <Panel title="2 · Select files">
+      <Panel title={t('step_select_files')}>
         <div
           className={`dropzone ${dragOver ? 'drag-over' : ''} ${busy ? 'disabled' : ''}`}
           onDragOver={(e) => { e.preventDefault(); if (!busy) setDragOver(true) }}
@@ -394,10 +383,9 @@ export default function ImportData() {
           onClick={() => { if (!busy) inputRef.current && inputRef.current.click() }}
         >
           <div className="dropzone-icon">⬆</div>
-          <div><b>Drag &amp; drop files here</b> or <span className="link">browse</span></div>
+          <div><b>{t('drag_drop_browse')}</b></div>
           <div className="muted small">
-            PDF · scanned PDF (OCR) · CSV · JSON · TXT — up to {MAX_MB} MB per file,
-            multiple files allowed
+            {t('drag_drop_subtext', { maxMb: MAX_MB })}
           </div>
           <input ref={inputRef} type="file" multiple accept={ACCEPT} hidden
             onChange={(e) => { addFiles(Array.from(e.target.files || [])); e.target.value = '' }}
@@ -413,8 +401,8 @@ export default function ImportData() {
               const issues = (r && r.errors) || []
               const warns = (r && r.warnings) || []
               const statusCls = !r ? 'pending' : !r.ok ? 'bad' : r.needs_ocr ? 'warn' : 'ok'
-              const label = !r ? 'Validating…'
-                : !r.ok ? 'Not ready' : r.needs_ocr ? 'OCR needed' : 'Ready'
+              const label = !r ? t('validation_pending')
+                : !r.ok ? t('validation_not_ready') : r.needs_ocr ? t('validation_ocr_needed') : t('validation_ready')
               return (
                 <div key={key} className={`file-row file-${statusCls}`}>
                   <div className="file-main">
@@ -424,11 +412,11 @@ export default function ImportData() {
                     <div className="file-meta">
                       <span className="file-name">{f.name}</span>
                       <span className="muted small">{fmtBytes(f.size)}
-                        {r && r.rows != null && ` · ${r.rows} record${r.rows === 1 ? '' : 's'}`}
+                        {r && r.rows != null && ` · ${t('records_counter', { count: r.rows, suffix: r.rows === 1 ? '' : 's' })}`}
                       </span>
                     </div>
                     <span className={`badge import-${statusCls}`}>{label}</span>
-                    <button className="btn btn-ghost file-remove" title="Remove"
+                    <button className="btn btn-ghost file-remove" title={t('remove_file_title')}
                       onClick={(e) => { e.stopPropagation(); removeFile(key) }}>✕</button>
                   </div>
 
@@ -447,10 +435,12 @@ export default function ImportData() {
                     <div className="mapping-wrap">
                       <details>
                         <summary>
-                          Column mapping — {Object.keys(mappings[key] || r.mapping || {}).length}
-                          {' '}of {r.columns.length} column{r.columns.length === 1 ? '' : 's'} mapped
-                          {r.mapping && Object.keys(r.mapping).length
-                            ? ' (auto-detected)' : ''}
+                          {t('column_mapping_summary', {
+                            mapped: Object.keys(mappings[key] || r.mapping || {}).length,
+                            total: r.columns.length,
+                            suffix: r.columns.length === 1 ? '' : 's',
+                            auto: r.mapping && Object.keys(r.mapping).length ? t('auto_detected_tag') : '',
+                          })}
                         </summary>
                         <MappingEditor columns={r.columns}
                           mapping={mappings[key] || r.mapping || {}}
@@ -483,20 +473,20 @@ export default function ImportData() {
             <button className="btn btn-primary btn-lg"
               disabled={busy || validCount === 0 || pendingCount > 0}
               onClick={doImport}>
-              {busy === 'upload' ? `Uploading… ${progress}%`
-                : busy === 'processing' ? 'Processing…'
-                  : `Import ${validCount} file${validCount === 1 ? '' : 's'} into ${caseId}`}
+              {busy === 'upload' ? t('uploading_progress', { progress })
+                : busy === 'processing' ? t('processing_progress')
+                  : t('import_button_action', { count: validCount, suffix: validCount === 1 ? '' : 's', caseId })}
             </button>
             {busy === 'upload' && (
               <div className="progress"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
             )}
             <span className="muted small">
-              {validCount === 0 ? 'Files above need to pass validation first.'
-                : pendingCount > 0 ? 'Waiting for validation…' : ''}
+              {validCount === 0 ? t('pass_validation_first')
+                : pendingCount > 0 ? t('waiting_for_validation') : ''}
             </span>
             {pendingCount > 0 && !busy && (
               <button className="btn btn-outline btn-sm" onClick={revalidate}>
-                Validate again
+                {t('validate_again')}
               </button>
             )}
           </div>
@@ -505,8 +495,7 @@ export default function ImportData() {
         {busy === 'processing' && history && (
           <div className="processing-live">
             <div className="info-box">
-              <b>Processing…</b> {history.filter((d) => !TERMINAL.has(d.status)).length}
-              {' '}file(s) in the pipeline. This page refreshes automatically.
+              {t('processing_live_banner', { count: history.filter((d) => !TERMINAL.has(d.status)).length })}
             </div>
           </div>
         )}
@@ -515,39 +504,39 @@ export default function ImportData() {
 
       {/* last import stats */}
       {history && history.length > 0 && (
-        <Panel title="Import statistics (this case)">
+        <Panel title={t('import_stats_title')}>
           <div className="stat-grid">
-            <StatCard label="Imports" value={history.length}
-              hint={`${history.filter((d) => d.status === 'completed').length} completed`} />
-            <StatCard label="Records processed" value={history.reduce((s, d) => s + (d.records_processed || 0), 0)} />
-            <StatCard label="Entities discovered" value={history.reduce((s, d) => s + (d.entities_discovered || 0), 0)} />
-            <StatCard label="People identified" value={history.reduce((s, d) => s + (d.persons_discovered || 0), 0)} />
-            <StatCard label="Evidence records" value={history.reduce((s, d) => s + (d.evidence_discovered || 0), 0)} />
-            <StatCard label="Relationship links" value={history.reduce((s, d) => s + (d.relationships_discovered || 0), 0)} />
+            <StatCard label={t('stat_imports')} value={history.length}
+              hint={t('stat_completed_hint', { count: history.filter((d) => d.status === 'completed').length })} />
+            <StatCard label={t('stat_records_processed')} value={history.reduce((s, d) => s + (d.records_processed || 0), 0)} />
+            <StatCard label={t('stat_entities_discovered')} value={history.reduce((s, d) => s + (d.entities_discovered || 0), 0)} />
+            <StatCard label={t('stat_people_identified')} value={history.reduce((s, d) => s + (d.persons_discovered || 0), 0)} />
+            <StatCard label={t('stat_evidence_records')} value={history.reduce((s, d) => s + (d.evidence_discovered || 0), 0)} />
+            <StatCard label={t('stat_relationship_links')} value={history.reduce((s, d) => s + (d.relationships_discovered || 0), 0)} />
           </div>
         </Panel>
       )}
 
       {/* import history */}
-      <Panel title="Import history"
-        actions={<Link className="link" to={`/cases/${caseId}`}>Case documents →</Link>}>
-        {!history ? <Spinner label="Loading history…" />
+      <Panel title={t('import_history_title')}
+        actions={<Link className="link" to={`/cases/${caseId}`}>{t('case_documents_link')}</Link>}>
+        {!history ? <Spinner label={t('loading_stage_log')} />
           : history.length === 0
-            ? <div className="empty muted">No datasets imported into this case yet.</div>
+            ? <div className="empty muted">{t('no_datasets_imported')}</div>
             : (
               <div className="history-scroll">
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>File</th><th>Type</th><th>Uploaded</th><th>By</th>
-                      <th>Status</th><th>Records</th><th>Entities</th><th>People</th>
-                      <th>Evidence</th><th>Rels</th><th />
+                      <th>{t('col_file')}</th><th>{t('col_type')}</th><th>{t('col_uploaded')}</th><th>{t('col_by')}</th>
+                      <th>{t('col_status')}</th><th>{t('col_records')}</th><th>{t('col_entities')}</th><th>{t('col_people_short')}</th>
+                      <th>{t('col_evidence_short')}</th><th>{t('col_rels_short')}</th><th />
                     </tr>
                   </thead>
                   <tbody>
                     {history.map((d) => {
                       const fresh = recentDocIds.has(d.id) && d.case_id === caseId
-                      const stage = STAGE_LABELS[d.status] || d.status
+                      const stage = t('stage_' + d.status, null, STAGE_LABELS[d.status] || d.status)
                       const open = !!expanded[d.id]
                       const jobLog = stages[d.id] || []
                       return (
@@ -557,7 +546,7 @@ export default function ImportData() {
                               <div className="mono">{d.filename}</div>
                               {d.mapping && Object.keys(d.mapping).length > 0 && (
                                 <div className="small muted">
-                                  {Object.keys(d.mapping).length} column(s) mapped to Crime Analysis fields
+                                  {t('cols_mapped_to_fields', { count: Object.keys(d.mapping).length })}
                                 </div>
                               )}
                               {d.error && <div className="import-error-line small">✕ {d.error}</div>}
@@ -573,8 +562,8 @@ export default function ImportData() {
                             <td className="muted">{d.uploaded_by_name || '—'}</td>
                             <td>
                               <span className={`badge status-${d.status}`}>{stage}</span>
-                              {d.retry_count > 0 && <span className="small muted"> · retry {d.retry_count}</span>}
-                              {fresh && <span className="badge import-ok">new</span>}
+                              {d.retry_count > 0 && <span className="small muted">{t('retry_counter', { count: d.retry_count })}</span>}
+                              {fresh && <span className="badge import-ok">{t('tag_new')}</span>}
                             </td>
                             <td className="mono">{d.records_processed}</td>
                             <td className="mono">{d.entities_discovered}</td>
@@ -583,13 +572,13 @@ export default function ImportData() {
                             <td className="mono">{d.relationships_discovered}</td>
                             <td className="history-actions">
                               <button className="btn btn-ghost btn-sm" onClick={() => toggleStages(d)}>
-                                {open ? 'Hide log' : 'Log'}
+                                {open ? t('btn_hide_log') : t('btn_log')}
                               </button>
                               {d.status === 'failed' && (
                                 <button className="btn btn-warn btn-sm"
                                   disabled={!!retrying[d.id]}
                                   onClick={() => doRetry(d)}>
-                                  {retrying[d.id] ? 'Retrying…' : 'Retry'}
+                                  {retrying[d.id] ? t('btn_retrying') : t('btn_retry')}
                                 </button>
                               )}
                             </td>
@@ -599,10 +588,10 @@ export default function ImportData() {
                               <td colSpan={11}>
                                 <div className="stage-log">
                                   {jobLog.length === 0
-                                    ? <span className="muted small">Loading stage log…</span>
+                                    ? <span className="muted small">{t('loading_stage_log')}</span>
                                     : jobLog.map((j, i) => (
                                       <span key={i} className={`stage-chip stage-${j.status || j.stage}`}>
-                                        {STAGE_LABELS[j.stage] || j.stage || j.status}
+                                        {t('stage_' + (j.stage || j.status), null, STAGE_LABELS[j.stage] || j.stage || j.status)}
                                       </span>
                                     ))}
                                   {jobLog.length > 0 && (
@@ -623,8 +612,7 @@ export default function ImportData() {
             )}
         {history && history.some((d) => d.status === 'failed') && (
           <div className="muted small history-hint">
-            Failed imports keep their source file so they can be retried after the
-            underlying problem is fixed (e.g. installing OCR software).
+            {t('failed_imports_hint')}
           </div>
         )}
       </Panel>

@@ -3,6 +3,7 @@ import { api, streamAnalysisChat } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 import MarkdownMessage from '../components/MarkdownMessage'
+import { useI18n } from '../i18n'
 
 const REQUEST_TIMEOUT_MS = 300000
 
@@ -17,6 +18,7 @@ async function withTimeout(path, options = {}) {
 }
 
 export default function Analysis() {
+  const { t } = useI18n()
   const [cases, setCases] = useState([])
   const [selected, setSelected] = useState([])
   const [analysis, setAnalysis] = useState('')
@@ -109,7 +111,7 @@ export default function Analysis() {
 
   const generateGraph = async () => {
     if (!selected.length) {
-      setErr('Select at least one case before generating the graph.')
+      setErr(t('err_select_case_graph'))
       return
     }
     setErr('')
@@ -227,7 +229,7 @@ export default function Analysis() {
   const runGraphAnalysis = async (requestedCaseId = '') => {
     const caseId = requestedCaseId || graphAnalysisCaseId || selected[0] || ''
     if (!caseId) {
-      setErr('Select a case to run graph analysis.')
+      setErr(t('err_select_case_graph_analysis'))
       return
     }
     setErr('')
@@ -307,14 +309,14 @@ export default function Analysis() {
     }
   }
 
-  if (loading) return <Spinner label="Loading cases…" />
+  if (loading) return <Spinner label={t('loading_cases')} />
 
   return (
     <div className="page analysis-page">
       <div>
-        <h2>Analysis</h2>
+        <h2>{t('analysis_title')}</h2>
         <p className="muted">
-          Case-level analysis and an evidence-grounded investigation assistant.
+          {t('analysis_subtitle')}
         </p>
       </div>
 
@@ -323,23 +325,23 @@ export default function Analysis() {
       {nvidiaReady && (
         <div className={nvidiaReady.configured ? 'info-box' : 'error-box'}>
           {nvidiaReady.configured
-            ? 'NVIDIA Nemotron is configured on the backend.'
-            : 'NVIDIA API key is missing on the backend. Add NVIDIA_API_KEY to .env and restart the backend.'}
+            ? t('nvidia_configured')
+            : t('nvidia_missing')}
         </div>
       )}
 
       <Panel
-        title="Cases for Analysis"
+        title={t('cases_for_analysis')}
         className="analysis-blue-panel"
         actions={
           <span className="muted small">
-            {selected.length} selected
+            {t('selected_count', { count: selected.length })}
           </span>
         }
       >
         {cases.length === 0 ? (
           <div className="empty muted">
-            No authorized cases are available.
+            {t('no_authorized_cases')}
           </div>
         ) : (
           <div className="analysis-case-picker">
@@ -362,12 +364,12 @@ export default function Analysis() {
 
         {syncStatus && (
           <div className="info-box small">
-            Neo4j sync: <strong>{syncStatus.status}</strong>
-            {syncStatus.synced_at ? ` · Last sync: ${new Date(syncStatus.synced_at).toLocaleString()}` : ''}
+            {t('neo4j_sync_label')} <strong>{syncStatus.status}</strong>
+            {syncStatus.synced_at ? ` · ${t('last_sync_label')} ${new Date(syncStatus.synced_at).toLocaleString()}` : ''}
             {syncStatus.error ? ` · ${syncStatus.error}` : ''}
             {syncStatus.status !== 'SYNCED' && (
               <button className="btn" type="button" onClick={resyncCase} style={{ marginLeft: 8 }}>
-                Sync Case to Neo4j
+                {t('sync_case_to_neo4j')}
               </button>
             )}
           </div>
@@ -384,7 +386,7 @@ export default function Analysis() {
               }
               onClick={runAnalysis}
             >
-              {generating ? 'Generating…' : 'Generate Analysis'}
+              {generating ? t('btn_generating_analysis') : t('btn_generate_analysis')}
             </button>
           </div>
 
@@ -398,7 +400,7 @@ export default function Analysis() {
               disabled={!selected.length || graphStatus === 'generating'}
               onClick={generateGraph}
             >
-              {graphStatus === 'generating' ? 'Generating Graph…' : 'Generate Graph'}
+              {graphStatus === 'generating' ? t('btn_generating_graph') : t('btn_generate_graph')}
             </button>
           </div>
 
@@ -418,7 +420,7 @@ export default function Analysis() {
               >
                 {selected.map((caseId) => (
                   <option key={caseId} value={caseId}>
-                    Graph metrics: {caseId}
+                    {t('graph_metrics_option', { caseId })}
                   </option>
                 ))}
               </select>
@@ -428,13 +430,13 @@ export default function Analysis() {
               disabled={!selected.length || graphAnalysisLoading}
               onClick={() => runGraphAnalysis()}
             >
-              {graphAnalysisLoading ? 'Running Graph Analysis…' : 'Run Graph Analysis'}
+              {graphAnalysisLoading ? t('btn_running_graph_analysis') : t('btn_run_graph_analysis')}
             </button>
           </div>
 
           {selectedCases.length > 0 && (
             <span className="muted small analysis-current-selection">
-              Analyzing: {selectedCases.map((c) => c.name).join(', ')}
+              {t('analyzing_current_selection', { cases: selectedCases.map((c) => c.name).join(', ') })}
             </span>
           )}
         </div>
@@ -442,39 +444,43 @@ export default function Analysis() {
 
       {context && (
         <div className="stat-grid">
-          <StatCard label="Cases" value={context.counts?.cases ?? 0} />
-          <StatCard label="People" value={context.counts?.people ?? 0} />
-          <StatCard label="Entities" value={context.counts?.entities ?? 0} />
+          <StatCard label={t('stat_cases')} value={context.counts?.cases ?? 0} />
+          <StatCard label={t('stat_people')} value={context.counts?.people ?? 0} />
+          <StatCard label={t('stat_entities')} value={context.counts?.entities ?? 0} />
           <StatCard
-            label="Relationships"
+            label={t('stat_relationships')}
             value={context.counts?.relationships ?? 0}
           />
-          <StatCard label="Evidence" value={context.counts?.evidence ?? 0} />
+          <StatCard label={t('stat_evidence')} value={context.counts?.evidence ?? 0} />
         </div>
       )}
 
       {graphAnalysis && (
         <Panel
-          title="Graph Analysis"
+          title={t('graph_analysis_panel_title')}
           actions={
             <span className="muted small">
-              {graphAnalysis.engine || 'graph-engine'} · {graphAnalysis.entity_count} people · {graphAnalysis.edge_count ?? 0} links
+              {t('graph_analysis_meta', {
+                engine: graphAnalysis.engine || 'graph-engine',
+                people: graphAnalysis.entity_count,
+                links: graphAnalysis.edge_count ?? 0,
+              })}
             </span>
           }
         >
           <div className="stat-grid">
             <StatCard
-              label="Communities"
+              label={t('stat_communities')}
               value={Object.keys(graphAnalysis.community_sizes || {}).length}
             />
             <StatCard
-              label="Components"
+              label={t('stat_components')}
               value={new Set(
                 (graphAnalysis.metrics?.connected_components || []).map((x) => x.componentId)
               ).size}
             />
             <StatCard
-              label="Top PageRank"
+              label={t('stat_top_pagerank')}
               value={
                 graphAnalysis.ranked_people?.[0]?.pagerank != null
                   ? graphAnalysis.ranked_people[0].pagerank.toFixed(4)
@@ -482,7 +488,7 @@ export default function Analysis() {
               }
             />
             <StatCard
-              label="Top Degree"
+              label={t('stat_top_degree')}
               value={
                 graphAnalysis.ranked_people?.[0]?.degree != null
                   ? graphAnalysis.ranked_people[0].degree.toFixed(2)
@@ -492,20 +498,22 @@ export default function Analysis() {
           </div>
 
           <div className="info-box small">
-            Engine: {graphAnalysis.engine || 'local graph engine'}. Betweenness: {graphAnalysis.betweenness_mode || 'exact'}.
-            These values describe network structure and evidence-backed connectivity; they are not probabilities of guilt.
+            {t('graph_analysis_disclaimer', {
+              engine: graphAnalysis.engine || 'local graph engine',
+              mode: graphAnalysis.betweenness_mode || 'exact',
+            })}
           </div>
 
           <div className="table-scroll">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Entity</th>
-                  <th>Degree</th>
-                  <th>Betweenness</th>
-                  <th>PageRank</th>
-                  <th>Closeness</th>
-                  <th>Community</th>
+                  <th>{t('col_entity')}</th>
+                  <th>{t('col_degree')}</th>
+                  <th>{t('col_betweenness')}</th>
+                  <th>{t('col_pagerank')}</th>
+                  <th>{t('col_closeness')}</th>
+                  <th>{t('col_community')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -527,10 +535,10 @@ export default function Analysis() {
           </div>
 
           <div className="two-col">
-            <Panel title="Communities — Louvain">
+            <Panel title={t('panel_louvain')}>
               <div className="table-scroll">
                 <table className="table">
-                  <thead><tr><th>Entity</th><th>Community</th></tr></thead>
+                  <thead><tr><th>{t('col_entity')}</th><th>{t('col_community')}</th></tr></thead>
                   <tbody>
                     {(graphAnalysis.metrics?.louvain_communities || []).slice(0, 25).map((r) => (
                       <tr key={r.entity_id}>
@@ -543,10 +551,10 @@ export default function Analysis() {
               </div>
             </Panel>
 
-            <Panel title="Connected Components">
+            <Panel title={t('panel_connected_components')}>
               <div className="table-scroll">
                 <table className="table">
-                  <thead><tr><th>Entity</th><th>Component</th></tr></thead>
+                  <thead><tr><th>{t('col_entity')}</th><th>{t('col_component')}</th></tr></thead>
                   <tbody>
                     {(graphAnalysis.metrics?.connected_components || []).slice(0, 25).map((r) => (
                       <tr key={r.entity_id}>
@@ -560,10 +568,10 @@ export default function Analysis() {
             </Panel>
           </div>
 
-          <Panel title="Top Similar Entity Pairs">
+          <Panel title={t('panel_similar_pairs')}>
             <div className="table-scroll">
               <table className="table">
-                <thead><tr><th>Entity A</th><th>Entity B</th><th>Jaccard</th></tr></thead>
+                <thead><tr><th>{t('col_entity_a')}</th><th>{t('col_entity_b')}</th><th>{t('col_jaccard')}</th></tr></thead>
                 <tbody>
                   {(graphAnalysis.metrics?.node_similarity || []).slice(0, 15).map((r, i) => (
                     <tr key={r.entity_a + '-' + r.entity_b + '-' + i}>
@@ -577,27 +585,27 @@ export default function Analysis() {
             </div>
           </Panel>
 
-          <Panel title="Temporal Overview">
+          <Panel title={t('panel_temporal_overview')}>
             <div className="stat-grid">
-              <StatCard label="Events" value={graphAnalysis.temporal?.event_count ?? 0} />
-              <StatCard label="Timed Events" value={graphAnalysis.temporal?.timed_event_count ?? 0} />
+              <StatCard label={t('stat_events')} value={graphAnalysis.temporal?.event_count ?? 0} />
+              <StatCard label={t('stat_timed_events')} value={graphAnalysis.temporal?.timed_event_count ?? 0} />
             </div>
           </Panel>
         </Panel>
       )}
 
       <div className="two-col analysis-workspace">
-        <Panel title="Suspicious Relationship Candidates" className="analysis-blue-panel">
+        <Panel title={t('suspicious_candidates_title')} className="analysis-blue-panel">
         {suspicious.length ? (
           <div className="table-scroll">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Person A</th>
-                  <th>Person B</th>
-                  <th>Score</th>
-                  <th>Strength</th>
-                  <th>Signals</th>
+                  <th>{t('col_person_a')}</th>
+                  <th>{t('col_person_b')}</th>
+                  <th>{t('col_score')}</th>
+                  <th>{t('col_strength')}</th>
+                  <th>{t('col_signals')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -619,32 +627,31 @@ export default function Analysis() {
             </table>
           </div>
         ) : (
-          <div className="empty muted">No relationship candidates are currently ranked for the selected case set.</div>
+          <div className="empty muted">{t('no_candidates_ranked')}</div>
         )}
         <div className="info-box small">
-          Candidates are prioritized from stored relationship-strength signals. They are investigation leads, not guilt determinations.
+          {t('candidates_disclaimer')}
         </div>
       </Panel>
 
-        <Panel title="Generated Case Analysis" className="glass-panel analysis-summary-panel analysis-blue-panel">
+        <Panel title={t('generated_case_analysis')} className="glass-panel analysis-summary-panel analysis-blue-panel">
           {analysis ? (
             <div className="analysis-summary-content">
               <MarkdownMessage text={analysis} />
             </div>
           ) : (
             <div className="empty muted">
-              Select one or more cases and generate an analysis.
+              {t('prompt_select_cases_analyze')}
             </div>
           )}
         </Panel>
 
-        <Panel title="Investigation Assistant" className="glass-panel chat-panel analysis-blue-panel">
+        <Panel title={t('investigation_assistant')} className="glass-panel chat-panel analysis-blue-panel">
           <div className="chat-shell">
             <div className="chat-messages">
               {messages.length === 0 && (
                 <div className="empty muted">
-                  Ask about relationships, evidence, connected people, or case
-                  patterns.
+                  {t('assistant_empty_prompt')}
                 </div>
               )}
 
@@ -655,21 +662,21 @@ export default function Analysis() {
                 >
                   <div className="chat-role">
                     {m.role === 'investigator'
-                      ? 'Investigator'
-                      : 'Nemotron'}
+                      ? t('role_investigator')
+                      : t('role_nemotron')}
                   </div>
                   <div className="chat-content">{m.role === 'assistant' ? <MarkdownMessage text={m.content} /> : m.content}</div>
                   {m.role === 'assistant' && agentTools[i] && (
-                    <div className="chat-tool-tag">Analysis tool: {agentTools[i]}</div>
+                    <div className="chat-tool-tag">{t('analysis_tool_tag', { tool: agentTools[i] })}</div>
                   )}
                 </div>
               ))}
 
               {chatting && (
                 <div className="chat-message chat-assistant chat-thinking">
-                  <div className="chat-role">Nemotron</div>
+                  <div className="chat-role">{t('role_nemotron')}</div>
                   <div className="chat-content muted">
-                    <span className="thinking-dot"></span> Thinking…
+                    <span className="thinking-dot"></span> {t('assistant_thinking')}
                   </div>
                 </div>
               )}
@@ -690,7 +697,7 @@ export default function Analysis() {
                       }
                     }
                   }}
-                  placeholder="Ask a question about the selected case(s)… (Press Enter to send)"
+                  placeholder={t('chat_placeholder')}
                   disabled={!selected.length || chatting}
                   autoComplete="off"
                 />
@@ -704,14 +711,14 @@ export default function Analysis() {
                     !message.trim() ||
                     nvidiaReady?.configured === false
                   }
-                  title="Send message (Enter)"
-                  aria-label="Send message"
+                  title={t('chat_send_title')}
+                  aria-label={t('chat_send')}
                 >
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                   </svg>
-                  <span>Send</span>
+                  <span>{t('chat_send')}</span>
                 </button>
               </div>
             </form>
@@ -720,12 +727,14 @@ export default function Analysis() {
       </div>
 
       <Panel
-        title="Relevant Graph"
+        title={t('relevant_graph_title')}
         className="analysis-blue-panel"
         actions={
           graphStatus !== 'not_loaded' ? (
             <span className="muted small">
-              Source: {graphStatus === 'neo4j' ? 'Neo4j' : graphStatus === 'sql-fallback' ? 'SQL fallback' : graphStatus}
+              {t('source_label', {
+                source: graphStatus === 'neo4j' ? 'Neo4j' : graphStatus === 'sql-fallback' ? t('source_sql_fallback') : graphStatus,
+              })}
             </span>
           ) : null
         }
@@ -734,21 +743,21 @@ export default function Analysis() {
           <NetworkGraph data={graph} onSelectNode={() => {}} />
         ) : (
           <div className="empty muted">
-            Select the cases above and click Generate Graph.
+            {t('prompt_select_generate_graph')}
           </div>
         )}
       </Panel>
 
       {context?.relationships?.length > 0 && (
-        <Panel title="Top Evidence-Backed Relationships">
+        <Panel title={t('top_evidence_relationships')}>
           <table className="table">
             <thead>
               <tr>
-                <th>Person A</th>
-                <th>Person B</th>
-                <th>Strength</th>
-                <th>Score</th>
-                <th>Signals</th>
+                <th>{t('col_person_a')}</th>
+                <th>{t('col_person_b')}</th>
+                <th>{t('col_strength')}</th>
+                <th>{t('col_score')}</th>
+                <th>{t('col_signals')}</th>
               </tr>
             </thead>
 

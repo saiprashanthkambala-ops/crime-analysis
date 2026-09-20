@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { useI18n } from '../i18n'
 import { ThemeToggle } from '../components/ui'
 import appLogo from '../profil icon'
 
 export default function Login() {
   const { login, logout } = useAuth()
+  const { t } = useI18n()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const requestedRole = searchParams.get('role')
-  const roleLabel = requestedRole === 'admin' ? 'System Admin' : requestedRole === 'investigator' ? 'Investigator' : ''
+  const roleLabel = requestedRole === 'admin' ? t('system_admin') : requestedRole === 'investigator' ? t('investigator') : ''
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -26,8 +28,8 @@ export default function Login() {
         await logout()
         throw new Error(
           requestedRole === 'investigator'
-            ? 'This account is not an investigator account. Sign in with an assigned investigator account.'
-            : 'This account is not a system admin account. Sign in with the system admin account.'
+            ? t('login_err_not_investigator')
+            : t('login_err_not_admin')
         )
       }
       navigate('/')
@@ -48,31 +50,31 @@ export default function Login() {
           <div className="login-logo-container">
             <img src={appLogo} alt="Crime Analysis" className="login-logo-img" />
           </div>
-          <h1>Crime Analysis</h1>
-          <p className="muted">AI-Assisted Criminal Network Analysis</p>
-          {roleLabel && <div className="login-role-context">{roleLabel} sign in</div>}
+          <h1>{t('brand_title')}</h1>
+          <p className="muted">{t('login_ai_subtitle')}</p>
+          {roleLabel && <div className="login-role-context">{t('login_role_signin', { role: roleLabel })}</div>}
         </div>
-        <label>Username</label>
+        <label>{t('username')}</label>
         <input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="Enter username"
+          placeholder={t('enter_username')}
           autoFocus
         />
-        <label>Password</label>
+        <label>{t('password')}</label>
         <div className="password-input-wrap">
           <input
             type={showPassword ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Enter password"
+            placeholder={t('enter_password')}
           />
           <button
             type="button"
             className="password-toggle-btn"
             onClick={() => setShowPassword(!showPassword)}
-            title={showPassword ? 'Hide password' : 'Show password'}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            title={showPassword ? t('hide_password') : t('show_password')}
+            aria-label={showPassword ? t('hide_password') : t('show_password')}
           >
             {showPassword ? (
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -94,21 +96,22 @@ export default function Login() {
               checked={showPassword}
               onChange={(e) => setShowPassword(e.target.checked)}
             />
-            <span>Show password</span>
+            <span>{t('show_password')}</span>
           </label>
         </div>
         {error && <div className="error-box">{error}</div>}
         <button className="btn btn-primary" disabled={loading}>
-          {loading ? 'Signing in…' : 'Sign in'}
+          {loading ? t('signing_in') : t('sign_in')}
         </button>
         <div className="login-hint muted">
           {requestedRole === 'investigator'
-            ? <>Investigator access uses an assigned investigator account.</>
+            ? <>{t('login_hint_investigator')}</>
             : requestedRole === 'admin'
-              ? <>System Admin access requires the administrator account.</>
+              ? <>{t('login_hint_admin')}</>
               : <>Demo: <code>investigator1 / investor1</code> · <code>admin / admin123</code></>}
         </div>
       </form>
     </div>
   )
 }
+

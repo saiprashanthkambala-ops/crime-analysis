@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import cytoscape from 'cytoscape'
 import { useTheme } from '../theme'
+import { useI18n } from '../i18n'
 
 const NODE_STYLE = {
   person: { color: '#22d3ee', shape: 'ellipse' },
@@ -18,6 +19,7 @@ export default function NetworkGraph({ data, onSelectNode }) {
   const ref = useRef(null)
   const cyRef = useRef(null)
   const { theme } = useTheme()
+  const { t } = useI18n()
   const isLight = theme === 'light'
 
   useEffect(() => {
@@ -125,7 +127,7 @@ export default function NetworkGraph({ data, onSelectNode }) {
       <div className="graph-legend">
         {Object.entries(NODE_STYLE).map(([k, v]) => (
           <span key={k} className="legend-item">
-            <span className="legend-dot" style={{ background: v.color }} /> {k}
+            <span className="legend-dot" style={{ background: v.color }} /> {t('node_' + k)}
           </span>
         ))}
       </div>

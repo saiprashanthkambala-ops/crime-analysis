@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
+import { useI18n } from '../i18n'
 import { Spinner, ErrorBox, Panel, KV } from '../components/ui'
 
 const STAGE_LABELS = {
@@ -12,6 +13,7 @@ const STAGE_LABELS = {
 
 export default function CaseDetail() {
   const { caseId } = useParams()
+  const { t } = useI18n()
   const [caseData, setCaseData] = useState(null)
   const [err, setErr] = useState('')
 
@@ -29,21 +31,21 @@ export default function CaseDetail() {
           <p className="muted">{caseData.description}</p>
         </div>
         <Link className="btn btn-primary" to={`/cases/${caseId}/import`}>
-          ⬆ Import Dataset
+          {t('import_dataset')}
         </Link>
       </div>
       <div className="kv-row">
-        <KV k="Case ID" v={caseData.id} />
-        <KV k="Status" v={caseData.status} />
-        <KV k="Created" v={caseData.created_at ? new Date(caseData.created_at).toLocaleString() : null} />
+        <KV k={t('case_id_label')} v={caseData.id} />
+        <KV k={t('col_status')} v={caseData.status} />
+        <KV k={t('created_label')} v={caseData.created_at ? new Date(caseData.created_at).toLocaleString() : null} />
       </div>
 
-      <Panel title={`Documents (${caseData.documents.length})`}
-        actions={<Link className="link" to={`/cases/${caseId}/import`}>Import / view full history →</Link>}>
-        {caseData.documents.length === 0 && <div className="empty muted">No documents uploaded.</div>}
+      <Panel title={t('documents_count_title', { count: caseData.documents.length })}
+        actions={<Link className="link" to={`/cases/${caseId}/import`}>{t('import_view_full_history')}</Link>}>
+        {caseData.documents.length === 0 && <div className="empty muted">{t('no_documents_uploaded')}</div>}
         <table className="table">
           <thead>
-            <tr><th>File</th><th>Type</th><th>Uploaded</th><th>Status</th></tr>
+            <tr><th>{t('col_file')}</th><th>{t('col_type')}</th><th>{t('col_uploaded')}</th><th>{t('col_status')}</th></tr>
           </thead>
           <tbody>
             {caseData.documents.map((d) => (
@@ -55,7 +57,7 @@ export default function CaseDetail() {
                 </td>
                 <td>
                   <span className={`badge status-${d.status}`}>
-                    {STAGE_LABELS[d.status] || d.status}
+                    {t('stage_' + d.status, null, STAGE_LABELS[d.status] || d.status)}
                   </span>
                 </td>
               </tr>
@@ -65,45 +67,38 @@ export default function CaseDetail() {
       </Panel>
 
       <div className="two-col">
-        <Panel title="Import investigation data">
+        <Panel title={t('import_investigation_data')}>
           <p className="muted small">
-            Use the dataset importer to upload PDF (text or scanned/OCR), CSV,
-            JSON and TXT files. Files are validated before they touch the case,
-            duplicate content is detected, and every record stays traceable to
-            its source document through the Crime Analysis pipeline.
+            {t('import_inv_data_desc')}
           </p>
           <ul className="feature-list small">
-            <li>Multi-file drag &amp; drop with per-file validation</li>
-            <li>CSV column mapping to Crime Analysis fields (auto-detect available)</li>
-            <li>Live processing stages: validating → parsing/OCR → extracting →
-              normalizing → resolving → analyzing</li>
-            <li>Duplicate detection by content hash and one-click retry of failures</li>
+            <li>{t('feature_multifile')}</li>
+            <li>{t('feature_csv_mapping')}</li>
+            <li>{t('feature_live_stages')}</li>
+            <li>{t('feature_duplicate_detection')}</li>
           </ul>
           <Link className="btn btn-primary" to={`/cases/${caseId}/import`}>
-            Open Dataset Importer →
+            {t('open_dataset_importer')}
           </Link>
         </Panel>
 
-        <Panel title="Evidence-backed by design">
+        <Panel title={t('evidence_backed_by_design')}>
           <p className="muted small">
-            Imported information is treated as <em>evidence to be validated</em>,
-            never as automatically true. Original values are preserved alongside
-            normalized values, and each entity / event / relationship links back
-            to its source document — so an investigator always knows <em>why</em>.
+            {t('evidence_backed_desc')}
           </p>
           <div className="kv-row">
-            <KV k="Evidence records" v={caseData.documents.length} />
+            <KV k={t('evidence_records_stat')} v={caseData.documents.length} />
           </div>
           <p className="muted small">
-            Explore what the pipeline discovered for this case from the network
-            graph, timeline and evidence views.
+            {t('pipeline_explore_desc')}
           </p>
           <div className="quick-actions">
-            <Link className="btn btn-outline" to={`/graph?case=${caseId}`}>Network</Link>
-            <Link className="btn btn-outline" to={`/timeline?case=${caseId}`}>Timeline</Link>
+            <Link className="btn btn-outline" to={`/graph?case=${caseId}`}>{t('nav_network')}</Link>
+            <Link className="btn btn-outline" to={`/timeline?case=${caseId}`}>{t('nav_timeline')}</Link>
           </div>
         </Panel>
       </div>
     </div>
   )
 }
+

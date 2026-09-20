@@ -1,19 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { Spinner, ErrorBox, Panel, StrengthBadge } from '../components/ui'
+import { useI18n } from '../i18n'
 
-const FILTERS = ['', 'STRONG', 'MODERATE', 'WEAK', 'INSUFFICIENT EVIDENCE']
-const SIGNALS = [
-  { value: '', label: 'All types' },
-  { value: 'call', label: 'Calls' },
-  { value: 'transaction', label: 'Transactions' },
-  { value: 'location', label: 'Location' },
-  { value: 'shared_identifier', label: 'Shared identifier' },
-  { value: 'case', label: 'Shared case' },
+const FILTER_KEYS = [
+  { value: '', key: 'filter_all', defaultLabel: 'All' },
+  { value: 'STRONG', key: 'filter_strong', defaultLabel: 'STRONG' },
+  { value: 'MODERATE', key: 'filter_moderate', defaultLabel: 'MODERATE' },
+  { value: 'WEAK', key: 'filter_weak', defaultLabel: 'WEAK' },
+  { value: 'INSUFFICIENT EVIDENCE', key: 'filter_insufficient', defaultLabel: 'INSUFFICIENT EVIDENCE' },
+]
+
+const SIGNAL_KEYS = [
+  { value: '', key: 'signal_all', defaultLabel: 'All types' },
+  { value: 'call', key: 'signal_calls', defaultLabel: 'Calls' },
+  { value: 'transaction', key: 'signal_transactions', defaultLabel: 'Transactions' },
+  { value: 'location', key: 'signal_location', defaultLabel: 'Location' },
+  { value: 'shared_identifier', key: 'signal_shared_identifier', defaultLabel: 'Shared identifier' },
+  { value: 'case', key: 'signal_shared_case', defaultLabel: 'Shared case' },
 ]
 
 export default function Relationships() {
+  const { t } = useI18n()
   const [rels, setRels] = useState(null)
   const [cases, setCases] = useState([])
   const [err, setErr] = useState('')
@@ -38,34 +47,45 @@ export default function Relationships() {
 
   return (
     <div className="page">
-      <h2>Relationships</h2>
+      <h2>{t('relationships_title')}</h2>
       <p className="muted">
-        Candidate relationships. Strength reflects the weight of supporting evidence — not guilt probability.
+        {t('relationships_subtitle')}
       </p>
 
       <div className="filter-row">
-        {FILTERS.map((f) => (
+        {FILTER_KEYS.map((f) => (
           <button
-            key={f || 'all'}
-            className={`btn ${filter === f ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setFilter(f)}
+            key={f.value || 'all'}
+            className={`btn ${filter === f.value ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setFilter(f.value)}
           >
-            {f || 'All'}
+            {t(f.key, null, f.defaultLabel)}
           </button>
         ))}
         <select value={signal} onChange={(e) => setSignal(e.target.value)} className="select-inline">
-          {SIGNALS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          {SIGNAL_KEYS.map((s) => (
+            <option key={s.value} value={s.value}>
+              {t(s.key, null, s.defaultLabel)}
+            </option>
+          ))}
         </select>
         <select value={caseId} onChange={(e) => setCaseId(e.target.value)} className="select-inline">
-          <option value="">All cases</option>
+          <option value="">{t('all_cases_option')}</option>
           {cases.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
 
-      <Panel title={`${shown.length} relationships`}>
+      <Panel title={t('count_relationships_title', { count: shown.length })}>
         <table className="table">
           <thead>
-            <tr><th>Person A</th><th>Person B</th><th>Strength</th><th>Score</th><th>Signals</th><th>Decision</th></tr>
+            <tr>
+              <th>{t('col_person_a')}</th>
+              <th>{t('col_person_b')}</th>
+              <th>{t('col_strength')}</th>
+              <th>{t('col_score')}</th>
+              <th>{t('col_signals')}</th>
+              <th>{t('col_decision')}</th>
+            </tr>
           </thead>
           <tbody>
             {shown.map((r) => (

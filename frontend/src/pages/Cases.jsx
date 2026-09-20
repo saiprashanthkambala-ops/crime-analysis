@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import { useI18n } from '../i18n'
 import { Spinner, ErrorBox, Panel } from '../components/ui'
 
 export default function Cases() {
+  const { t } = useI18n()
   const [cases, setCases] = useState(null)
   const [err, setErr] = useState('')
   const [name, setName] = useState('')
@@ -29,12 +31,12 @@ export default function Cases() {
 
   return (
     <div className="page">
-      <h2>Cases</h2>
+      <h2>{t('cases_title')}</h2>
       <div className="two-col">
-        <Panel title="Case List">
+        <Panel title={t('case_list')}>
           <table className="table">
             <thead>
-              <tr><th>ID</th><th>Name</th><th>Status</th><th>Documents</th></tr>
+              <tr><th>{t('col_id')}</th><th>{t('col_name')}</th><th>{t('col_status')}</th><th>{t('col_documents')}</th></tr>
             </thead>
             <tbody>
               {cases.map((c) => (
@@ -48,14 +50,14 @@ export default function Cases() {
             </tbody>
           </table>
         </Panel>
-        <Panel title="Create Case">
+        <Panel title={t('create_case')}>
           <form onSubmit={create} className="form">
-            <label>Case Name</label>
+            <label>{t('case_name')}</label>
             <input value={name} onChange={(e) => setName(e.target.value)} />
-            <label>Description</label>
+            <label>{t('description')}</label>
             <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={4} />
             <button className="btn btn-primary" disabled={creating}>
-              {creating ? 'Creating…' : 'Create Case'}
+              {creating ? t('creating') : t('create_case')}
             </button>
           </form>
         </Panel>
@@ -63,3 +65,4 @@ export default function Cases() {
     </div>
   )
 }
+

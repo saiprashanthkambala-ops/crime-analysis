@@ -2,19 +2,21 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Spinner, ErrorBox, Panel, StrengthBadge, Empty, KV } from '../components/ui'
+import { useI18n } from '../i18n'
 
-function IdList({ title, items }) {
+function IdList({ title, items, emptyText }) {
   return (
     <div className="id-block">
       <div className="id-title">{title}</div>
       {items.length === 0
-        ? <div className="muted small">Unavailable</div>
+        ? <div className="muted small">{emptyText}</div>
         : items.map((it, i) => <div key={i} className="id-chip mono">{it}</div>)}
     </div>
   )
 }
 
 export default function Profile() {
+  const { t } = useI18n()
   const { personId } = useParams()
   const [profile, setProfile] = useState(null)
   const [err, setErr] = useState('')
@@ -36,19 +38,19 @@ export default function Profile() {
       </div>
 
       <div className="stat-grid">
-        <div className="stat-card"><div className="stat-value">{c.phones}</div><div className="stat-label">Phones</div></div>
-        <div className="stat-card"><div className="stat-value">{c.vehicles}</div><div className="stat-label">Vehicles</div></div>
-        <div className="stat-card"><div className="stat-value">{c.accounts}</div><div className="stat-label">Bank Accounts</div></div>
-        <div className="stat-card"><div className="stat-value">{c.locations}</div><div className="stat-label">Locations</div></div>
-        <div className="stat-card"><div className="stat-value">{c.cases}</div><div className="stat-label">Cases</div></div>
-        <div className="stat-card"><div className="stat-value">{c.events}</div><div className="stat-label">Calls / Events</div></div>
+        <div className="stat-card"><div className="stat-value">{c.phones}</div><div className="stat-label">{t('stat_phones')}</div></div>
+        <div className="stat-card"><div className="stat-value">{c.vehicles}</div><div className="stat-label">{t('stat_vehicles')}</div></div>
+        <div className="stat-card"><div className="stat-value">{c.accounts}</div><div className="stat-label">{t('stat_bank_accounts')}</div></div>
+        <div className="stat-card"><div className="stat-value">{c.locations}</div><div className="stat-label">{t('stat_locations')}</div></div>
+        <div className="stat-card"><div className="stat-value">{c.cases}</div><div className="stat-label">{t('stat_cases')}</div></div>
+        <div className="stat-card"><div className="stat-value">{c.events}</div><div className="stat-label">{t('stat_calls_events')}</div></div>
       </div>
 
       {profile.resolution && profile.resolution.merged && (
-        <Panel title="Identity Resolution">
+        <Panel title={t('panel_identity_resolution')}>
           <div className="resolution-box">
             <div className="muted small">
-              Multiple source records were resolved into this person — not silently merged.
+              {t('identity_resolution_desc')}
             </div>
             <div className="source-list" style={{ marginTop: 8 }}>
               {(profile.resolution.variants || []).map((v) => (
@@ -56,26 +58,28 @@ export default function Profile() {
               ))}
             </div>
             <div className="small muted" style={{ marginTop: 8 }}>
-              Signals: {(profile.resolution.signals || []).join(', ') || 'name similarity'} ·
-              Confidence: {Math.round((profile.resolution.confidence || 0) * 100)}%
+              {t('resolution_signals_confidence', {
+                signals: (profile.resolution.signals || []).join(', ') || 'name similarity',
+                confidence: Math.round((profile.resolution.confidence || 0) * 100),
+              })}
             </div>
           </div>
         </Panel>
       )}
 
       <div className="two-col">
-        <Panel title="Identifiers">
-          <IdList title="Phones" items={profile.phones} />
-          <IdList title="Vehicles" items={profile.vehicles} />
-          <IdList title="Bank Accounts" items={profile.accounts} />
-          <IdList title="Locations" items={profile.locations} />
+        <Panel title={t('panel_identifiers')}>
+          <IdList title={t('stat_phones')} items={profile.phones} emptyText={t('unavailable')} />
+          <IdList title={t('stat_vehicles')} items={profile.vehicles} emptyText={t('unavailable')} />
+          <IdList title={t('stat_bank_accounts')} items={profile.accounts} emptyText={t('unavailable')} />
+          <IdList title={t('stat_locations')} items={profile.locations} emptyText={t('unavailable')} />
           <div className="small muted" style={{ marginTop: 8 }}>
-            Missing attributes are unknown — never negative evidence.
+            {t('missing_attrs_disclaimer')}
           </div>
         </Panel>
 
-        <Panel title="Connections">
-          {profile.relationships.length === 0 && <Empty message="No relationships discovered." />}
+        <Panel title={t('panel_connections')}>
+          {profile.relationships.length === 0 && <Empty message={t('no_relationships_discovered')} />}
           <table className="table">
             <tbody>
               {profile.relationships.map((r) => (
@@ -94,15 +98,22 @@ export default function Profile() {
         </Panel>
       </div>
 
-      <Panel title="Timeline">
-        {profile.events.length === 0 && <Empty message="No timeline events available." />}
+      <Panel title={t('panel_timeline')}>
+        {profile.events.length === 0 && <Empty message={t('no_timeline_events')} />}
         <table className="table">
-          <thead><tr><th>Date</th><th>Time</th><th>Type</th><th>Description</th></tr></thead>
+          <thead>
+            <tr>
+              <th>{t('col_date')}</th>
+              <th>{t('col_time')}</th>
+              <th>{t('col_type')}</th>
+              <th>{t('description')}</th>
+            </tr>
+          </thead>
           <tbody>
             {profile.events.map((e) => (
               <tr key={e.id}>
                 <td className="mono">{e.date}</td>
-                <td className="mono">{e.time || <span className="muted">Unavailable</span>}</td>
+                <td className="mono">{e.time || <span className="muted">{t('unavailable')}</span>}</td>
                 <td><span className="badge type-badge">{e.type}</span></td>
                 <td className="muted">{e.description}</td>
               </tr>

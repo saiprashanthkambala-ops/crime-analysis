@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import { useI18n } from '../i18n'
 import { Spinner, ErrorBox, StatCard, Panel, StrengthBadge } from '../components/ui'
 import appLogo from '../profil icon'
 
@@ -18,6 +19,7 @@ const MetricIcon = ({ type }) => {
 }
 
 export default function Dashboard() {
+  const { t } = useI18n()
   const [stats, setStats] = useState(null)
   const [rels, setRels] = useState(null)
   const [cases, setCases] = useState([])
@@ -77,16 +79,16 @@ export default function Dashboard() {
   }
 
   const metricMeta = {
-    cases: { title: 'Active Cases', description: 'Current cases available to the signed-in investigator.', icon: 'cases' },
-    persons: { title: 'Persons', description: 'People represented in the investigation data.', icon: 'persons' },
-    relationships: { title: 'Relationships', description: 'Stored evidence-backed person-to-person relationships.', icon: 'relationships' },
-    evidence: { title: 'Evidence Records', description: 'Evidence records currently stored in the investigation database.', icon: 'evidence' },
-    documents: { title: 'Documents', description: 'Imported source documents associated with cases.', icon: 'documents' },
-    entities: { title: 'Extracted Entities', description: 'Entities extracted and normalized from imported source material.', icon: 'entities' },
+    cases: { title: t('active_cases'), description: t('desc_cases'), icon: 'cases' },
+    persons: { title: t('persons'), description: t('desc_persons'), icon: 'persons' },
+    relationships: { title: t('relationships'), description: t('desc_relationships'), icon: 'relationships' },
+    evidence: { title: t('evidence_records'), description: t('desc_evidence'), icon: 'evidence' },
+    documents: { title: t('documents'), description: t('desc_documents'), icon: 'documents' },
+    entities: { title: t('extracted_entities'), description: t('desc_entities'), icon: 'entities' },
   }
 
   if (err) return <ErrorBox message={err} />
-  if (!stats || !rels) return <Spinner label="Loading dashboard…" />
+  if (!stats || !rels) return <Spinner label={t('loading_dashboard')} />
 
   return (
     <div className="page dashboard-page">
@@ -95,47 +97,47 @@ export default function Dashboard() {
           <div className="dashboard-hero-img-wrapper">
             <img src={appLogo} alt="Crime Analysis Investigation Suite" className="dashboard-hero-img" />
             <div className="hero-badge-live">
-              <span className="live-dot"></span> LIVE INTEL
+              <span className="live-dot"></span> {t('live_intel')}
             </div>
           </div>
         </div>
         <div className="dashboard-hero-content">
-          <div className="hero-tag">INTELLIGENCE PLATFORM · MULTI-SOURCE CORROBORATION</div>
-          <h1 className="hero-title">Criminal Network & Relationship Intelligence</h1>
+          <div className="hero-tag">{t('dashboard_hero_tag')}</div>
+          <h1 className="hero-title">{t('dashboard_hero_title')}</h1>
           <p className="hero-description">
-            Evidence-backed investigation overview — AI detects entities and suggests hidden links, multi-source records corroborate claims, and investigators verify critical findings.
+            {t('dashboard_hero_desc')}
           </p>
           <div className="hero-meta-strip">
             <div className="hero-meta-item">
-              <span className="meta-label">Active Cases</span>
+              <span className="meta-label">{t('active_cases')}</span>
               <span className="meta-val">{stats.cases}</span>
             </div>
             <div className="hero-meta-divider"></div>
             <div className="hero-meta-item">
-              <span className="meta-label">Total Entities Monitored</span>
+              <span className="meta-label">{t('total_entities_monitored')}</span>
               <span className="meta-val">{(stats.persons || 0) + (stats.entities || 0)}</span>
             </div>
             <div className="hero-meta-divider"></div>
             <div className="hero-meta-item">
-              <span className="meta-label">Validated Relationships</span>
+              <span className="meta-label">{t('validated_relationships')}</span>
               <span className="meta-val">{stats.relationships}</span>
             </div>
             <div className="hero-meta-divider"></div>
             <div className="hero-meta-item">
-              <span className="meta-label">Evidence Vault</span>
-              <span className="meta-val">{stats.evidence} records</span>
+              <span className="meta-label">{t('evidence_vault')}</span>
+              <span className="meta-val">{stats.evidence} {t('records_suffix')}</span>
             </div>
           </div>
         </div>
       </div>
 
       <div className="stat-grid">
-        <StatCard label="Active Cases" value={stats.cases} icon={<MetricIcon type="cases" />} onClick={() => setActiveMetric('cases')} />
-        <StatCard label="Persons" value={stats.persons} icon={<MetricIcon type="persons" />} onClick={() => setActiveMetric('persons')} />
-        <StatCard label="Relationships" value={stats.relationships} icon={<MetricIcon type="relationships" />} onClick={() => setActiveMetric('relationships')} />
-        <StatCard label="Evidence Records" value={stats.evidence} icon={<MetricIcon type="evidence" />} onClick={() => setActiveMetric('evidence')} />
-        <StatCard label="Documents" value={stats.documents} icon={<MetricIcon type="documents" />} onClick={() => setActiveMetric('documents')} />
-        <StatCard label="Extracted Entities" value={stats.entities} icon={<MetricIcon type="entities" />} onClick={() => setActiveMetric('entities')} />
+        <StatCard label={t('active_cases')} value={stats.cases} icon={<MetricIcon type="cases" />} onClick={() => setActiveMetric('cases')} />
+        <StatCard label={t('persons')} value={stats.persons} icon={<MetricIcon type="persons" />} onClick={() => setActiveMetric('persons')} />
+        <StatCard label={t('relationships')} value={stats.relationships} icon={<MetricIcon type="relationships" />} onClick={() => setActiveMetric('relationships')} />
+        <StatCard label={t('evidence_records')} value={stats.evidence} icon={<MetricIcon type="evidence" />} onClick={() => setActiveMetric('evidence')} />
+        <StatCard label={t('documents')} value={stats.documents} icon={<MetricIcon type="documents" />} onClick={() => setActiveMetric('documents')} />
+        <StatCard label={t('extracted_entities')} value={stats.entities} icon={<MetricIcon type="entities" />} onClick={() => setActiveMetric('entities')} />
       </div>
 
       {activeMetric && (
@@ -154,7 +156,7 @@ export default function Dashboard() {
           >
             <div className="dashboard-metric-modal-head">
               <div>
-                <div className="dashboard-metric-eyebrow">Dashboard details</div>
+                <div className="dashboard-metric-eyebrow">{t('dashboard_details')}</div>
                 <h3 id="dashboard-metric-title">{metricMeta[activeMetric].title}</h3>
                 <p>{metricMeta[activeMetric].description}</p>
               </div>
@@ -162,7 +164,7 @@ export default function Dashboard() {
                 type="button"
                 className="dashboard-metric-close"
                 onClick={() => setActiveMetric(null)}
-                aria-label="Close details"
+                aria-label={t('close_details')}
               >
                 ×
               </button>
@@ -201,7 +203,7 @@ export default function Dashboard() {
                         <strong>{item.name}</strong>
                         <div className="muted small mono">{item.person_id}</div>
                       </div>
-                      <span className="dashboard-detail-type">Person</span>
+                      <span className="dashboard-detail-type">{t('entity_type_person')}</span>
                     </div>
                   ))}
                 </div>
@@ -214,12 +216,12 @@ export default function Dashboard() {
                       <div>
                         <strong>{item.person_a?.name} ↔ {item.person_b?.name}</strong>
                         <div className="muted small">
-                          {(item.signals?.calls || 0)} calls · {(item.signals?.transactions || 0)} txns · {(item.signals?.location_overlaps || 0)} location overlaps
+                          {t('calls_count', { count: item.signals?.calls || 0 })} · {t('txns_count', { count: item.signals?.transactions || 0 })} · {t('loc_overlaps_count', { count: item.signals?.location_overlaps || 0 })}
                         </div>
                       </div>
                       <div className="dashboard-detail-side">
                         <span className="badge status-badge">{item.strength || '—'}</span>
-                        <span className="mono small">score {item.score ?? '—'}</span>
+                        <span className="mono small">{t('score_prefix', { score: item.score ?? '—' })}</span>
                       </div>
                     </div>
                   ))}
@@ -231,11 +233,11 @@ export default function Dashboard() {
                   {evidence.map((item) => (
                     <div className="dashboard-detail-row dashboard-detail-row-stack" key={item.id}>
                       <div>
-                        <strong>{item.type || 'Evidence record'}</strong>
-                        <div className="muted small">{item.source || 'Source not specified'}</div>
+                        <strong>{item.type || t('evidence_record_default')}</strong>
+                        <div className="muted small">{item.source || t('source_not_specified')}</div>
                       </div>
                       <div className="dashboard-detail-side">
-                        <span className="muted small">{item.date || 'Date unavailable'}</span>
+                        <span className="muted small">{item.date || t('date_unavailable')}</span>
                         <span className="mono small">{item.id}</span>
                       </div>
                     </div>
@@ -268,19 +270,19 @@ export default function Dashboard() {
                         <strong>{item.value || 'Unknown value'}</strong>
                         <div className="muted small">{item.case_id || 'No case'} · {item.normalized || 'Not normalized'}</div>
                       </div>
-                      <span className="dashboard-detail-type">{item.type || 'Entity'}</span>
+                      <span className="dashboard-detail-type">{item.type || t('entity_type_entity')}</span>
                     </div>
                   ))}
                   {entities.length > 60 && (
                     <div className="empty muted small">
-                      Showing 60 of {entities.length} extracted entities.
+                      {t('showing_entities_count', { total: entities.length })}
                     </div>
                   )}
                 </div>
               )}
 
               {metricItems[activeMetric]?.length === 0 && (
-                <div className="empty muted">No records are available for this metric.</div>
+                <div className="empty muted">{t('no_records_for_metric')}</div>
               )}
             </div>
           </div>
@@ -288,10 +290,10 @@ export default function Dashboard() {
       )}
 
       <div className="two-col">
-        <Panel title="Top Relationships" actions={<Link className="link" to="/relationships">View all →</Link>}>
+        <Panel title={t('top_relationships')} actions={<Link className="link" to="/relationships">{t('view_all_arrow')}</Link>}>
           <table className="table">
             <thead>
-              <tr><th>People</th><th>Evidence Strength</th><th>Signals</th></tr>
+              <tr><th>{t('col_people')}</th><th>{t('col_evidence_strength')}</th><th>{t('col_signals')}</th></tr>
             </thead>
             <tbody>
               {rels.slice(0, 8).map((r) => (
@@ -311,12 +313,12 @@ export default function Dashboard() {
           </table>
         </Panel>
 
-        <Panel title="Quick Actions">
+        <Panel title={t('quick_actions')}>
           <div className="quick-actions">
-            <Link className="btn btn-outline" to="/cases">Manage Cases</Link>
-            <Link className="btn btn-outline" to="/graph">Open Network</Link>
-            <Link className="btn btn-outline" to="/timeline">Open Timeline</Link>
-            <Link className="btn btn-outline" to="/search">Search Records</Link>
+            <Link className="btn btn-outline" to="/cases">{t('manage_cases')}</Link>
+            <Link className="btn btn-outline" to="/graph">{t('open_network')}</Link>
+            <Link className="btn btn-outline" to="/timeline">{t('open_timeline')}</Link>
+            <Link className="btn btn-outline" to="/search">{t('search_records')}</Link>
           </div>
         </Panel>
       </div>

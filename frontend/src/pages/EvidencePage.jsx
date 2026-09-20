@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { Spinner, ErrorBox, Panel } from '../components/ui'
+import { useI18n } from '../i18n'
 
 export default function EvidencePage() {
+  const { t } = useI18n()
   const [evidence, setEvidence] = useState(null)
   const [err, setErr] = useState('')
 
@@ -13,12 +15,21 @@ export default function EvidencePage() {
 
   return (
     <div className="page">
-      <h2>Evidence</h2>
-      <p className="muted">Every record is traceable to its source. {evidence.length} records.</p>
-      <Panel title="Evidence Records">
+      <h2>{t('evidence_title')}</h2>
+      <p className="muted">{t('evidence_subtitle', { count: evidence.length })}</p>
+      <Panel title={t('evidence_records_panel')}>
         <table className="table">
           <thead>
-            <tr><th>ID</th><th>Type</th><th>Person A</th><th>Person B</th><th>Source</th><th>Date</th><th>Time</th><th>Confidence</th></tr>
+            <tr>
+              <th>{t('col_id')}</th>
+              <th>{t('col_type')}</th>
+              <th>{t('col_person_a')}</th>
+              <th>{t('col_person_b')}</th>
+              <th>{t('col_source')}</th>
+              <th>{t('col_date')}</th>
+              <th>{t('col_time')}</th>
+              <th>{t('col_confidence')}</th>
+            </tr>
           </thead>
           <tbody>
             {evidence.map((e) => (
@@ -29,7 +40,7 @@ export default function EvidencePage() {
                 <td className="mono">{e.person_b}</td>
                 <td className="mono">{e.source}</td>
                 <td className="mono">{e.date}</td>
-                <td className="mono">{e.time || <span className="muted">Unavailable</span>}</td>
+                <td className="mono">{e.time || <span className="muted">{t('unavailable')}</span>}</td>
                 <td className="mono">{e.confidence}</td>
               </tr>
             ))}
