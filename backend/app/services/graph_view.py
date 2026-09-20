@@ -211,6 +211,12 @@ def get_case_graph(db: Session, user, requested_case_ids: list[str] | None = Non
 
     sync_errors: list[str] = []
     for cid in case_ids:
+        case = db.get(Case, cid)
+        # A successfully synchronized projection is already the latest SQL
+        # snapshot. Avoid re-running the full Aura sync on every graph render.
+        # Imports mark the case PENDING, so changed data will still trigger sync.
+        if case and (case.neo4j_sync_status or "").upper() == "SYNCED":
+            continue
         try:
             sync_case_to_neo4j(db, cid)
         except Exception as exc:  # noqa: BLE001
