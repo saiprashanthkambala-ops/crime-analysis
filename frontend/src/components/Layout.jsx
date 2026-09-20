@@ -13,13 +13,24 @@ export default function Layout() {
   const [accessError, setAccessError] = useState('')
 
   useEffect(() => {
-    if (!accessOpen || user?.role !== 'admin') return
+    if (!accessOpen) return undefined
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setAccessOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    if (user?.role !== 'admin') {
+      return () => document.removeEventListener('keydown', onKeyDown)
+    }
+
     let active = true
     setAccessError('')
     api('/admin/investigators/overview')
       .then((data) => { if (active) setInvestigatorOverview(data) })
       .catch((e) => { if (active) setAccessError(e.message) })
-    return () => { active = false }
+    return () => {
+      active = false
+      document.removeEventListener('keydown', onKeyDown)
+    }
   }, [accessOpen, user?.role])
 
   const onSearch = (e) => {
