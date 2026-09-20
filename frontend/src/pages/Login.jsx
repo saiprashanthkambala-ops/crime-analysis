@@ -1,12 +1,15 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { ThemeToggle } from '../components/ui'
 import appLogo from '../profil icon'
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, logout } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const requestedRole = searchParams.get('role')
+  const roleLabel = requestedRole === 'admin' ? 'System Admin' : requestedRole === 'investigator' ? 'Investigator' : ''
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -18,7 +21,15 @@ export default function Login() {
     setLoading(true)
     setError('')
     try {
-      await login(username, password)
+      const signedInUser = await login(username, password)
+      if (requestedRole && signedInUser.role !== requestedRole) {
+        await logout()
+        throw new Error(
+          requestedRole === 'investigator'
+            ? 'This account is not an investigator account. Sign in with an assigned investigator account.'
+            : 'This account is not a system admin account. Sign in with the system admin account.'
+        )
+      }
       navigate('/')
     } catch (err) {
       setError(err.message)
@@ -39,6 +50,7 @@ export default function Login() {
           </div>
           <h1>Crime Analysis</h1>
           <p className="muted">AI-Assisted Criminal Network Analysis</p>
+          {roleLabel && <div className="login-role-context">{roleLabel} sign in</div>}
         </div>
         <label>Username</label>
         <input
@@ -90,7 +102,11 @@ export default function Login() {
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
         <div className="login-hint muted">
-          Demo: <code>investigator1 / investor1</code> · <code>admin / admin123</code>
+          {requestedRole === 'investigator'
+            ? <>Investigator access uses an assigned investigator account.</>
+            : requestedRole === 'admin'
+              ? <>System Admin access requires the administrator account.</>
+              : <>Demo: <code>investigator1 / investor1</code> · <code>admin / admin123</code></>}
         </div>
       </form>
     </div>
