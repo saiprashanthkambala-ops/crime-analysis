@@ -1,14 +1,16 @@
 import { useTheme } from '../theme'
+import { useI18n } from '../i18n'
 
 export function ThemeToggle({ className = '', showLabel = true }) {
   const { theme, toggleTheme } = useTheme()
+  const { t } = useI18n()
   return (
     <button
       type="button"
       className={`theme-toggle-btn ${className}`.trim()}
       onClick={toggleTheme}
-      title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-      aria-label="Toggle theme"
+      title={theme === 'dark' ? t('theme_switch_light') : t('theme_switch_dark')}
+      aria-label={t('theme_toggle_aria')}
     >
       {theme === 'dark' ? (
         <>
@@ -23,35 +25,39 @@ export function ThemeToggle({ className = '', showLabel = true }) {
             <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
           </svg>
-          {showLabel && <span className="theme-toggle-label">Light</span>}
+          {showLabel && <span className="theme-toggle-label">{t('theme_light')}</span>}
         </>
       ) : (
         <>
           <svg className="theme-toggle-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
-          {showLabel && <span className="theme-toggle-label">Dark</span>}
+          {showLabel && <span className="theme-toggle-label">{t('theme_dark')}</span>}
         </>
       )}
     </button>
   )
 }
 
-export function Spinner({ label = 'Loading…' }) {
+export function Spinner({ label }) {
+  const { t } = useI18n()
+  const displayLabel = label !== undefined ? label : t('loading_default')
   return (
     <div className="spinner-wrap">
       <div className="spinner" />
-      <span className="muted">{label}</span>
+      <span className="muted">{displayLabel}</span>
     </div>
   )
 }
 
 export function Empty({ message }) {
-  return <div className="empty muted">{message || 'No data available.'}</div>
+  const { t } = useI18n()
+  return <div className="empty muted">{message || t('no_data_available')}</div>
 }
 
 export function ErrorBox({ message }) {
-  return <div className="error-box">⚠ {message || 'Something went wrong.'}</div>
+  const { t } = useI18n()
+  return <div className="error-box">⚠ {message || t('something_went_wrong')}</div>
 }
 
 export function StrengthBadge({ strength }) {
@@ -101,10 +107,12 @@ export function Panel({ title, actions, children, className = '' }) {
 }
 
 export function KV({ k, v }) {
+  const { t } = useI18n()
   return (
     <div className="kv">
       <span className="kv-key muted">{k}</span>
-      <span className="kv-val">{v ?? <span className="muted">Unavailable</span>}</span>
+      <span className="kv-val">{v ?? <span className="muted">{t('unavailable')}</span>}</span>
     </div>
   )
 }
+

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { useI18n } from '../i18n'
 import { ThemeToggle, Spinner } from './ui'
 import { api } from '../api'
 import appLogo from '../profil icon'
 
 export default function Layout() {
   const { user, logout } = useAuth()
+  const { language, setLanguage, t } = useI18n()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [accessOpen, setAccessOpen] = useState(false)
@@ -45,22 +47,22 @@ export default function Layout() {
         <div className="brand">
           <NavLink to="/" className="brand-link">
             <img src={appLogo} alt="Crime Analysis Logo" className="brand-logo" />
-            <span className="brand-text">Crime Analysis</span>
+            <span className="brand-text">{t('brand_title')}</span>
           </NavLink>
         </div>
         <form className="global-search" onSubmit={onSearch}>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search person / case / phone / identifier…" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('search_placeholder')} />
         </form>
         <nav className="topnav">
-          <NavLink to="/" end>Dashboard</NavLink>
-          <NavLink to="/cases">Cases</NavLink>
-          <NavLink to="/import">Import Data</NavLink>
-          <NavLink to="/analysis">Analysis</NavLink>
-          <NavLink to="/relationships">Connections</NavLink>
-          <NavLink to="/timeline">Timeline</NavLink>
-          <NavLink to="/graph">Network</NavLink>
-          <NavLink to="/evidence">Evidence</NavLink>
-          {user?.role === 'admin' && <NavLink to="/admin">Admin</NavLink>}
+          <NavLink to="/" end>{t('nav_dashboard')}</NavLink>
+          <NavLink to="/cases">{t('nav_cases')}</NavLink>
+          <NavLink to="/import">{t('nav_import')}</NavLink>
+          <NavLink to="/analysis">{t('nav_analysis')}</NavLink>
+          <NavLink to="/relationships">{t('nav_connections')}</NavLink>
+          <NavLink to="/timeline">{t('nav_timeline')}</NavLink>
+          <NavLink to="/graph">{t('nav_network')}</NavLink>
+          <NavLink to="/evidence">{t('nav_evidence')}</NavLink>
+          {user?.role === 'admin' && <NavLink to="/admin">{t('nav_admin')}</NavLink>}
         </nav>
         <div className="user-chip">
           <ThemeToggle />
@@ -72,9 +74,9 @@ export default function Layout() {
             aria-expanded={accessOpen}
           >
             <img src={appLogo} alt="User Avatar" className="user-avatar-mini" />
-            <span className="user-name-badge">{user?.role === 'admin' ? 'System Admin' : 'Investigator'}</span>
+            <span className="user-name-badge">{user?.role === 'admin' ? t('system_admin') : t('investigator')}</span>
           </button>
-          <button className="btn btn-ghost" onClick={() => { logout(); navigate('/login') }}>Logout</button>
+          <button className="btn btn-ghost" onClick={() => { logout(); navigate('/login') }}>{t('logout')}</button>
         </div>
       </header>
       <main className="content"><Outlet /></main>
@@ -90,25 +92,61 @@ export default function Layout() {
           <div className="access-modal" role="dialog" aria-modal="true" aria-labelledby="access-modal-title">
             <div className="access-modal-head">
               <div>
-                <div className="access-modal-eyebrow">Account access</div>
-                <h3 id="access-modal-title">Choose access type</h3>
-                <p>Use your assigned account type. Passwords are never displayed in this interface.</p>
+                <div className="access-modal-eyebrow">{t('account_access')}</div>
+                <h3 id="access-modal-title">{t('choose_access_type')}</h3>
+                <p>{t('account_access_desc')}</p>
               </div>
-              <button
-                type="button"
-                className="access-modal-close"
-                onClick={() => setAccessOpen(false)}
-                aria-label="Close access menu"
-              >×</button>
+              <div className="access-modal-header-actions">
+                <div className="access-lang-buttons" role="group" aria-label={t('select_language')}>
+                  <button
+                    type="button"
+                    className={`access-lang-btn ${language === 'en' ? 'is-active' : ''}`}
+                    onClick={() => setLanguage('en')}
+                    title="English"
+                  >
+                    EN
+                  </button>
+                  <button
+                    type="button"
+                    className={`access-lang-btn ${language === 'te' ? 'is-active' : ''}`}
+                    onClick={() => setLanguage('te')}
+                    title="Telugu"
+                  >
+                    తెలుగు
+                  </button>
+                  <button
+                    type="button"
+                    className={`access-lang-btn ${language === 'hi' ? 'is-active' : ''}`}
+                    onClick={() => setLanguage('hi')}
+                    title="Hindi"
+                  >
+                    हिन्दी
+                  </button>
+                  <button
+                    type="button"
+                    className={`access-lang-btn ${language === 'ta' ? 'is-active' : ''}`}
+                    onClick={() => setLanguage('ta')}
+                    title="Tamil"
+                  >
+                    தமிழ்
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="access-modal-close"
+                  onClick={() => setAccessOpen(false)}
+                  aria-label={t('close_access_menu')}
+                >×</button>
+              </div>
             </div>
 
             <div className="access-role-grid">
               <div className={'access-role-card ' + (user?.role === 'admin' ? 'is-current' : '')}>
-                <div className="access-role-title">System Admin</div>
+                <div className="access-role-title">{t('system_admin')}</div>
                 <div className="access-role-subtitle">
                   {user?.role === 'admin'
-                    ? 'Current signed-in role'
-                    : 'Sign in with the system administrator account'}
+                    ? t('current_signed_in_role')
+                    : t('signin_with_sysadmin')}
                 </div>
                 <button
                   type="button"
@@ -119,16 +157,16 @@ export default function Layout() {
                     else navigate('/login?role=admin')
                   }}
                 >
-                  {user?.role === 'admin' ? 'Open Admin Console' : 'Sign in as System Admin'}
+                  {user?.role === 'admin' ? t('open_admin_console') : t('signin_as_sysadmin')}
                 </button>
               </div>
 
               <div className={'access-role-card ' + (user?.role === 'investigator' ? 'is-current' : '')}>
-                <div className="access-role-title">Investigator</div>
+                <div className="access-role-title">{t('investigator')}</div>
                 <div className="access-role-subtitle">
                   {user?.role === 'investigator'
-                    ? 'Current investigator interface'
-                    : 'Sign in with an assigned investigator account'}
+                    ? t('current_investigator_interface')
+                    : t('signin_with_investigator')}
                 </div>
                 <button
                   type="button"
@@ -139,7 +177,7 @@ export default function Layout() {
                     else navigate('/login?role=investigator')
                   }}
                 >
-                  {user?.role === 'investigator' ? 'Open Investigator Workspace' : 'Sign in as Investigator'}
+                  {user?.role === 'investigator' ? t('open_investigator_workspace') : t('signin_as_investigator')}
                 </button>
               </div>
             </div>
@@ -148,18 +186,18 @@ export default function Layout() {
               <div className="access-investigator-section">
                 <div className="access-section-head">
                   <div>
-                    <strong>Investigator Access Overview</strong>
-                    <div className="muted small">Accounts, assigned cases, and recent case activity.</div>
+                    <strong>{t('investigator_access_overview')}</strong>
+                    <div className="muted small">{t('investigator_overview_desc')}</div>
                   </div>
                   <span className="badge role-badge">
-                    {investigatorOverview?.investigators?.length ?? 0} investigators
+                    {t('count_investigators', { count: investigatorOverview?.investigators?.length ?? 0 })}
                   </span>
                 </div>
 
                 {accessError && <div className="error-box small">{accessError}</div>}
-                {!accessError && !investigatorOverview && <Spinner label="Loading investigator access…" />}
+                {!accessError && !investigatorOverview && <Spinner label={t('loading_investigator_access')} />}
                 {investigatorOverview?.investigators?.length === 0 && (
-                  <div className="empty muted">No investigator accounts have been created.</div>
+                  <div className="empty muted">{t('no_investigator_accounts')}</div>
                 )}
 
                 <div className="access-investigator-list">
@@ -171,7 +209,7 @@ export default function Layout() {
                           <span className="mono small">@{investigator.username}</span>
                         </div>
                         <div className="muted small">
-                          {investigator.is_active ? 'Active account' : 'Inactive account'}
+                          {investigator.is_active ? t('active_account') : t('inactive_account')}
                           {investigator.email ? ' · ' + investigator.email : ''}
                         </div>
                         <div className="access-case-chips">
@@ -181,18 +219,18 @@ export default function Layout() {
                             </span>
                           ))}
                           {!investigator.assigned_cases?.length && (
-                            <span className="muted small">No cases assigned</span>
+                            <span className="muted small">{t('no_cases_assigned')}</span>
                           )}
                         </div>
                       </div>
                       <div className="access-investigator-meta">
-                        <div className="muted small">Last login</div>
-                        <strong>{investigator.last_login ? new Date(investigator.last_login).toLocaleString() : 'No recorded login'}</strong>
-                        <div className="muted small">Last activity</div>
-                        <strong>{investigator.last_activity ? new Date(investigator.last_activity).toLocaleString() : 'No recorded activity'}</strong>
+                        <div className="muted small">{t('last_login')}</div>
+                        <strong>{investigator.last_login ? new Date(investigator.last_login).toLocaleString() : t('no_recorded_login')}</strong>
+                        <div className="muted small">{t('last_activity')}</div>
+                        <strong>{investigator.last_activity ? new Date(investigator.last_activity).toLocaleString() : t('no_recorded_activity')}</strong>
                         {investigator.recent_case_activity?.length > 0 && (
                           <div className="access-recent-activity">
-                            Recent: {investigator.recent_case_activity[0].action} · {investigator.recent_case_activity[0].case_name}
+                            {t('recent_prefix')} {investigator.recent_case_activity[0].action} · {investigator.recent_case_activity[0].case_name}
                           </div>
                         )}
                       </div>
@@ -203,11 +241,11 @@ export default function Layout() {
             )}
 
             <div className="access-modal-foot muted small">
-              Login credentials are intentionally protected. The admin view exposes usernames, account status, assigned cases, and audit-derived activity, not passwords.
+              {t('access_modal_foot')}
             </div>
           </div>
         </div>
       )}
     </div>
   )
-}
+}
