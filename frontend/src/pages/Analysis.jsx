@@ -301,6 +301,7 @@ export default function Analysis() {
 
       <Panel
         title="Cases for Analysis"
+        className="analysis-blue-panel"
         actions={
           <span className="muted small">
             {selected.length} selected
@@ -314,7 +315,7 @@ export default function Analysis() {
         ) : (
           <div className="analysis-case-picker">
             {cases.map((c) => (
-              <label key={c.id} className="analysis-case-card">
+              <label key={c.id} className={'analysis-case-card' + (selected.includes(c.id) ? ' is-selected' : '')}>
                 <input
                   type="checkbox"
                   checked={selected.includes(c.id)}
@@ -542,7 +543,7 @@ export default function Analysis() {
       )}
 
       <div className="two-col analysis-workspace">
-        <Panel title="Suspicious Relationship Candidates">
+        <Panel title="Suspicious Relationship Candidates" className="analysis-blue-panel">
         {suspicious.length ? (
           <div className="table-scroll">
             <table className="table">
@@ -581,7 +582,7 @@ export default function Analysis() {
         </div>
       </Panel>
 
-        <Panel title="Generated Case Analysis" className="glass-panel analysis-summary-panel">
+        <Panel title="Generated Case Analysis" className="glass-panel analysis-summary-panel analysis-blue-panel">
           {analysis ? (
             <div className="analysis-summary-content">
               <MarkdownMessage text={analysis} />
@@ -593,7 +594,7 @@ export default function Analysis() {
           )}
         </Panel>
 
-        <Panel title="Investigation Chat" className="glass-panel chat-panel">
+        <Panel title="Investigation Assistant" className="glass-panel chat-panel analysis-blue-panel">
           <div className="chat-shell">
             <div className="chat-messages">
               {messages.length === 0 && (
@@ -676,6 +677,7 @@ export default function Analysis() {
 
       <Panel
         title="Relevant Graph"
+        className="analysis-blue-panel"
         actions={
           graphStatus !== 'not_loaded' ? (
             <span className="muted small">
