@@ -3,6 +3,7 @@ import { api, streamAnalysisChat } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 import MarkdownMessage from '../components/MarkdownMessage'
+import appLogo from '../profil icon'
 
 const REQUEST_TIMEOUT_MS = 50000
 
@@ -593,43 +594,137 @@ export default function Analysis() {
           )}
         </Panel>
 
-        <Panel title="Investigation Chat" className="glass-panel chat-panel">
+        <div className="ai-assistant-card">
+          <div className="ai-assistant-header">
+            <div className="ai-assistant-title-group">
+              <div className="ai-assistant-avatar-wrap">
+                <img src={appLogo} alt="AI Assistant" className="ai-assistant-avatar" />
+              </div>
+              <div>
+                <h3 className="ai-assistant-title">AI Investigation Assistant</h3>
+                <p className="ai-assistant-subtitle">Ask questions, analyze cases, and get intelligent insights.</p>
+              </div>
+            </div>
+
+            <div className="ai-assistant-actions">
+              <button type="button" className="ai-header-btn" title="Export Findings" aria-label="Export Findings">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </button>
+              <button type="button" className="ai-header-btn" title="Copy Case Link" aria-label="Copy Case Link">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+              </button>
+              <button type="button" className="ai-header-btn" title="Fullscreen" aria-label="Fullscreen">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
           <div className="chat-shell">
             <div className="chat-messages">
               {messages.length === 0 && (
-                <div className="empty muted">
-                  Ask about relationships, evidence, connected people, or case
-                  patterns.
+                <div className="chat-empty-greeting">
+                  <div className="greeting-icon">
+                    <img src={appLogo} alt="AI Intelligence" className="greeting-avatar" />
+                  </div>
+                  <div className="greeting-text">
+                    Select one or more cases and ask questions to uncover hidden relationships, corroborating signals, financial anomalies, or evidence trails.
+                  </div>
                 </div>
               )}
 
               {messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={'chat-message chat-' + m.role}
-                >
-                  <div className="chat-role">
-                    {m.role === 'investigator'
-                      ? 'Investigator'
-                      : 'Nemotron'}
-                  </div>
-                  <div className="chat-content">{m.role === 'assistant' ? <MarkdownMessage text={m.content} /> : m.content}</div>
-                  {m.role === 'assistant' && agentTools[i] && (
-                    <div className="chat-tool-tag">Analysis tool: {agentTools[i]}</div>
+                <div key={i} className={'chat-row chat-row-' + m.role}>
+                  {m.role === 'assistant' && (
+                    <div className="chat-bubble-avatar">
+                      <img src={appLogo} alt="AI" className="chat-bubble-avatar-img" />
+                    </div>
                   )}
+
+                  <div className="chat-bubble-container">
+                    <div className={'chat-message chat-' + m.role}>
+                      <div className="chat-content">
+                        {m.role === 'assistant' ? <MarkdownMessage text={m.content} /> : m.content}
+                      </div>
+                      {m.role === 'assistant' && agentTools[i] && (
+                        <div className="chat-tool-tag">Analysis tool: {agentTools[i]}</div>
+                      )}
+                    </div>
+                    <div className="chat-timestamp">
+                      {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
                 </div>
               ))}
 
               {chatting && (
-                <div className="chat-message chat-assistant chat-thinking">
-                  <div className="chat-role">Nemotron</div>
-                  <div className="chat-content muted">
-                    <span className="thinking-dot"></span> Thinking…
+                <div className="chat-row chat-row-assistant">
+                  <div className="chat-bubble-avatar">
+                    <img src={appLogo} alt="AI" className="chat-bubble-avatar-img" />
+                  </div>
+                  <div className="chat-bubble-container">
+                    <div className="chat-message chat-assistant chat-thinking">
+                      <div className="chat-content muted">
+                        <span className="thinking-dot"></span> Correlating evidence & analyzing…
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
             </div>
 
+            {/* Quick Suggestion Chips matching Image 2 */}
+            <div className="chat-suggestions-bar">
+              <button
+                type="button"
+                className="chat-suggestion-chip"
+                onClick={() => {
+                  setMessage('Show network graph for selected cases')
+                }}
+              >
+                Show network graph
+              </button>
+              <button
+                type="button"
+                className="chat-suggestion-chip"
+                onClick={() => {
+                  setMessage('List all evidence and corroborating sources')
+                }}
+              >
+                List all evidence
+              </button>
+              <button
+                type="button"
+                className="chat-suggestion-chip"
+                onClick={() => {
+                  setMessage('Find common contacts and mutual overlaps')
+                }}
+              >
+                Find common contacts
+              </button>
+              <button
+                type="button"
+                className="chat-suggestion-chip"
+                onClick={() => {
+                  setMessage('Generate chronological timeline of events')
+                }}
+              >
+                Generate timeline
+              </button>
+            </div>
+
+            {/* Input form with attachment icon and solid blue send button matching Image 2 */}
             <form className="chat-form" onSubmit={sendMessage}>
               <div className="chat-input-wrapper">
                 <input
@@ -645,33 +740,44 @@ export default function Analysis() {
                       }
                     }
                   }}
-                  placeholder="Ask a question about the selected case(s)… (Press Enter to send)"
+                  placeholder="Ask anything about this case…"
                   disabled={!selected.length || chatting}
                   autoComplete="off"
                 />
 
                 <button
+                  type="button"
+                  className="chat-attach-btn"
+                  title="Attach evidence file or identifier"
+                  aria-label="Attach evidence file"
+                  onClick={() => alert('Attach reference document or identifier')}
+                >
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
+
+                <button
                   type="submit"
-                  className="chat-send-btn"
+                  className="chat-send-btn-round"
                   disabled={
                     !selected.length ||
                     chatting ||
                     !message.trim() ||
                     nvidiaReady?.configured === false
                   }
-                  title="Send message (Enter)"
+                  title="Send message"
                   aria-label="Send message"
                 >
-                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                   </svg>
-                  <span>Send</span>
                 </button>
               </div>
             </form>
           </div>
-        </Panel>
+        </div>
       </div>
 
       <Panel

@@ -63,12 +63,19 @@ export function TypeBadge({ type }) {
   return <span className={`badge type-badge`}>{type}</span>
 }
 
-export function StatCard({ label, value, hint }) {
+export function StatCard({ label, value, hint, icon, color = 'blue', onClick }) {
   return (
-    <div className="stat-card">
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
-      {hint && <div className="stat-hint muted">{hint}</div>}
+    <div className={`stat-card stat-card-${color}`} onClick={onClick} role={onClick ? 'button' : undefined}>
+      {icon && (
+        <div className={`stat-icon-wrapper stat-icon-${color}`}>
+          {icon}
+        </div>
+      )}
+      <div className="stat-content">
+        <div className="stat-value">{value ?? '0'}</div>
+        <div className="stat-label">{label}</div>
+        {hint && <div className="stat-hint muted">{hint}</div>}
+      </div>
     </div>
   )
 }
