@@ -60,6 +60,21 @@ def list_persons(user: User = Depends(get_current_user), db: Session = Depends(g
     ]
 
 
+@router.get("/entities")
+def list_entities(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    entities = db.query(Entity).all()
+    return [
+        {
+            "id": e.id,
+            "type": e.entity_type,
+            "value": e.original_value,
+            "normalized": e.normalized_value,
+            "case_id": e.case_id,
+        }
+        for e in entities
+    ]
+
+
 @router.get("/persons/{person_id}")
 def get_person(person_id: str, user: User = Depends(get_current_user),
                db: Session = Depends(get_db)):
