@@ -107,6 +107,7 @@ function MappingEditor({ columns, mapping, onChange }) {
 
 /* ------------------------------------------------------------ Main page */
 export default function ImportData() {
+  const { t } = useI18n()
   const params = useParams()
   const routeCaseId = params.caseId || null
 
@@ -253,6 +254,12 @@ export default function ImportData() {
     }
     return null
   }, [])
+
+  const resultsByKey = useMemo(() => {
+    const out = {}
+    files.forEach((f) => { const k = fileKey(f); out[k] = pre[k] || null })
+    return out
+  }, [files, pre])
 
   const validCount = files.filter((f) => {
     const r = resultsByKey[fileKey(f)]
