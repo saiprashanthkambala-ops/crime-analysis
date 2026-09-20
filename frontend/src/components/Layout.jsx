@@ -72,7 +72,7 @@ export default function Layout() {
             aria-expanded={accessOpen}
           >
             <img src={appLogo} alt="User Avatar" className="user-avatar-mini" />
-            <span className="user-name-badge">{user?.full_name || user?.username}</span>
+            <span className="user-name-badge">{user?.role === 'admin' ? 'System Admin' : 'Investigator'}</span>
           </button>
           <button className="btn btn-ghost" onClick={() => { logout(); navigate('/login') }}>Logout</button>
         </div>
@@ -106,15 +106,21 @@ export default function Layout() {
               <div className={'access-role-card ' + (user?.role === 'admin' ? 'is-current' : '')}>
                 <div className="access-role-title">System Admin</div>
                 <div className="access-role-subtitle">
-                  {user?.role === 'admin' ? 'Current signed-in role' : 'Restricted for this account'}
+                  {user?.role === 'admin'
+                    ? 'Current signed-in role'
+                    : 'Sign in with the system administrator account'}
                 </div>
-                {user?.role === 'admin' ? (
-                  <button type="button" className="btn btn-primary" onClick={() => { setAccessOpen(false); navigate('/admin') }}>
-                    Open Admin Console
-                  </button>
-                ) : (
-                  <span className="access-role-disabled">Administrator access required</span>
-                )}
+                <button
+                  type="button"
+                  className={user?.role === 'admin' ? 'btn btn-primary' : 'btn'}
+                  onClick={() => {
+                    setAccessOpen(false)
+                    if (user?.role === 'admin') navigate('/admin')
+                    else navigate('/login?role=admin')
+                  }}
+                >
+                  {user?.role === 'admin' ? 'Open Admin Console' : 'Sign in as System Admin'}
+                </button>
               </div>
 
               <div className={'access-role-card ' + (user?.role === 'investigator' ? 'is-current' : '')}>
@@ -122,12 +128,16 @@ export default function Layout() {
                 <div className="access-role-subtitle">
                   {user?.role === 'investigator'
                     ? 'Current investigator interface'
-                    : 'Separate investigator account'}
+                    : 'Sign in with an assigned investigator account'}
                 </div>
                 <button
                   type="button"
-                  className="btn"
-                  onClick={() => { setAccessOpen(false); navigate(user?.role === 'investigator' ? '/analysis' : '/login') }}
+                  className={user?.role === 'investigator' ? 'btn btn-primary' : 'btn'}
+                  onClick={() => {
+                    setAccessOpen(false)
+                    if (user?.role === 'investigator') navigate('/analysis')
+                    else navigate('/login?role=investigator')
+                  }}
                 >
                   {user?.role === 'investigator' ? 'Open Investigator Workspace' : 'Sign in as Investigator'}
                 </button>
