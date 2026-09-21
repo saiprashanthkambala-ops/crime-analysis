@@ -210,3 +210,28 @@ python -m pytest -q        # 50 tests: unit + auth/RBAC + ingestion + provenance
 - Never invent dates, times, or relationships
 - The graph is a navigation layer, not a guilt engine
 - A human always remains in the decision loop
+
+
+## Database migration
+
+PostgreSQL is the primary relational system of record. During the migration period, SQLite remains available as a source only.
+
+### SQLite -> PostgreSQL
+
+Phase 2 provides a one-time migration utility:
+
+```text
+cd backend
+python -m scripts.migrate_sqlite_to_postgres --sqlite "sqlite:///C:/path/to/crime_analysis.db" --postgres "postgresql+psycopg://crime_analysis:crime_analysis@localhost:5432/crime_analysis"
+```
+
+The utility:
+- reads the SQLite database without modifying it;
+- copies users, cases, assignments, documents, processing jobs, entities, persons, events, evidence, relationships, feedback and audit records;
+- preserves primary keys and stored investigation values;
+- compares source and destination row counts after the copy;
+- stops with a mismatch instead of reporting success.
+
+Do not use `--replace` unless the PostgreSQL destination is a disposable/fresh migration target.
+
+After migration, configure the application `DATABASE_URL` to the same PostgreSQL database and start the backend. Phase 3 will remove the remaining SQLite compatibility code after PostgreSQL and Neo4j are verified end-to-end.
