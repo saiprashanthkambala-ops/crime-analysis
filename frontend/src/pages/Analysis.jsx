@@ -4,6 +4,7 @@ import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 import MarkdownMessage from '../components/MarkdownMessage'
 import { useI18n } from '../i18n'
+import { useAnalysisRuntime } from '../analysisRuntime'
 
 const REQUEST_TIMEOUT_MS = 300000
 
@@ -20,28 +21,31 @@ async function withTimeout(path, options = {}) {
 export default function Analysis() {
   const { t } = useI18n()
   const [cases, setCases] = useState([])
-  const [selected, setSelected] = useState([])
-  const [analysis, setAnalysis] = useState('')
-  const [context, setContext] = useState(null)
-  const [graph, setGraph] = useState({ nodes: [], edges: [] })
-  const [syncStatus, setSyncStatus] = useState(null)
-  const [graphStatus, setGraphStatus] = useState('not_loaded')
   const [nvidiaReady, setNvidiaReady] = useState(null)
-  const [graphAnalysis, setGraphAnalysis] = useState(null)
-  const [graphAnalysisLoading, setGraphAnalysisLoading] = useState(false)
-  const [graphAnalysisCaseId, setGraphAnalysisCaseId] = useState('')
   const [loading, setLoading] = useState(true)
-  const [generating, setGenerating] = useState(false)
   const [message, setMessage] = useState('')
-  const [messages, setMessages] = useState([])
-  const [chatting, setChatting] = useState(false)
   const [err, setErr] = useState('')
-  const [agentTools, setAgentTools] = useState({})
-  const [suspicious, setSuspicious] = useState([])
-  const [analysisProgress, setAnalysisProgress] = useState(0)
-  const [graphProgress, setGraphProgress] = useState(0)
   const analysisProgressTimer = useRef(null)
   const graphProgressTimer = useRef(null)
+
+  const {
+    selected, setSelected,
+    analysis, setAnalysis,
+    context, setContext,
+    graph, setGraph,
+    syncStatus, setSyncStatus,
+    graphStatus, setGraphStatus,
+    graphAnalysis, setGraphAnalysis,
+    graphAnalysisLoading, setGraphAnalysisLoading,
+    graphAnalysisCaseId, setGraphAnalysisCaseId,
+    generating, setGenerating,
+    messages, setMessages,
+    chatting, setChatting,
+    agentTools, setAgentTools,
+    suspicious, setSuspicious,
+    analysisProgress, setAnalysisProgress,
+    graphProgress, setGraphProgress,
+  } = useAnalysisRuntime()
 
   const startEstimatedProgress = (setter, timerRef) => {
     window.clearInterval(timerRef.current)
@@ -56,11 +60,6 @@ export default function Analysis() {
     timerRef.current = null
     setter(100)
   }
-
-  useEffect(() => () => {
-    window.clearInterval(analysisProgressTimer.current)
-    window.clearInterval(graphProgressTimer.current)
-  }, [])
 
   useEffect(() => {
     Promise.all([
