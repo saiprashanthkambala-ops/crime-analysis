@@ -14,7 +14,7 @@ load_dotenv(BASE_DIR / ".env")
 class Settings:
     def __init__(self):
         self.APP_ENV: str = os.getenv("APP_ENV", "development").strip().lower()
-        # PostgreSQL is the target system of record. Keep SQLite fallback only for the temporary migration period.
+        # PostgreSQL is the sole relational system of record.
         self.DATABASE_URL: str = os.getenv(
             "DATABASE_URL",
             "postgresql+psycopg://crime_analysis:crime_analysis@localhost:5432/crime_analysis",
