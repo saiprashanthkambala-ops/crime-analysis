@@ -18,8 +18,8 @@ FastAPI Backend
       +--------------------+
       |                    |
       v                    v
-   SQLite              Remote Neo4j
-Existing data          Graph database
+ PostgreSQL            Remote Neo4j
+System of record       Graph projection
 ```
 
 ---
@@ -43,7 +43,7 @@ environment and never need a `.env` file at all.
 
 | Variable | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | no | `sqlite:///<backend>/crime_analysis.db` | SQLAlchemy URL of the application database (SQLite stays the system of record). |
+| `DATABASE_URL` | yes | `postgresql+psycopg://crime_analysis:crime_analysis@localhost:5432/crime_analysis` | PostgreSQL SQLAlchemy connection URL. |
 | `JWT_SECRET` | yes in production | dev value | Token signing key. Change it for any real deployment. |
 | `JWT_EXPIRE_MINUTES` | no | `720` | Access-token lifetime. |
 | `NEO4J_URI` | to enable Neo4j | *(empty)* | Full connection URI of the remote Neo4j instance, e.g. `neo4j+s://xxxx.databases.neo4j.io`. |
@@ -140,7 +140,15 @@ later phase, the example file is updated — never the real values.
 
 ---
 
-## 5. Testing Neo4j connectivity
+## 5. Testing PostgreSQL and Neo4j connectivity
+
+### PostgreSQL health
+
+```bash
+curl http://localhost:8000/api/health/database
+```
+
+The endpoint must report `connected: true` before continuing with graph verification.
 
 ### Via the API
 

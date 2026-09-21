@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import text
 from fastapi.staticfiles import StaticFiles
 
 from .config import BASE_DIR, settings
@@ -63,6 +64,19 @@ app.include_router(graph_analysis.router)
 @app.get("/health")
 def health():
     return {"status": "healthy", "neo4j": neo4j_status()}
+
+
+@app.get("/api/health/database")
+def database_health():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"connected": True, "status": "connected", "database": "postgresql"}
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(
+            status_code=503,
+            content={"connected": False, "status": "unavailable", "database": "postgresql", "detail": str(exc)},
+        )
 
 
 @app.get("/api/health/neo4j")
