@@ -15,6 +15,7 @@ import TimelinePage from './pages/TimelinePage'
 import GraphPage from './pages/GraphPage'
 import Analysis from './pages/Analysis'
 import AdminPage from './pages/AdminPage'
+import { AnalysisRuntimeProvider } from './analysisRuntime'
 
 function RequireAuth({ children }) {
   const { isAuthed, sessionChecked } = useAuth()
@@ -34,7 +35,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route element={<RequireAuth><Layout /></RequireAuth>}>
+      <Route element={<RequireAuth><AnalysisRuntimeProvider><Layout /></AnalysisRuntimeProvider></RequireAuth>}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/cases" element={<Cases />} />
         <Route path="/cases/:caseId" element={<CaseDetail />} />
