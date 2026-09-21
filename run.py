@@ -43,6 +43,12 @@ DIST = FRONTEND / "dist"
 
 IS_WINDOWS = os.name == "nt"
 
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -205,8 +211,8 @@ def main():
         # 4. wait until ready
         step("Waiting for the server to be ready…")
         if wait_for_server(f"{base_url}/health"):
-            print("\n  ✓ Crime Analysis is running!")
-            print(f"  ✓ Open {base_url} in your browser")
+            print("\n  * Crime Analysis is running!")
+            print(f"  * Open {base_url} in your browser")
             print("\n  Demo logins:")
             print("      investigator1 / investor1")
             print("      investigator2 / investor2")
@@ -217,7 +223,6 @@ def main():
                 open_browser(base_url)
         else:
             print("\n  ! Server failed to start. See logs above.")
-            server.terminate()
             sys.exit(1)
 
         # 5. keep alive until Ctrl+C
@@ -225,12 +230,13 @@ def main():
         server.wait()
     except KeyboardInterrupt:
         print("\n\n==> Shutting down Crime Analysis…")
+    finally:
         server.terminate()
         try:
             server.wait(timeout=5)
         except subprocess.TimeoutExpired:
             server.kill()
-        print("  ✓ Stopped.")
+        print("  * Stopped.")
 
 
 if __name__ == "__main__":
