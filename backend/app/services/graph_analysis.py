@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from ..security import ensure_case_access
 from .neo4j_service import Neo4jConnectionError, run_read_query
-from .graph_sync import sync_case_to_neo4j
 
 
 REL_TYPES = [
@@ -175,8 +174,12 @@ def _components(graph: nx.Graph) -> list[dict[str, Any]]:
 
 
 def _similarity(graph: nx.Graph) -> list[dict[str, Any]]:
+    """Return top Jaccard-style neighbor similarity without an unbounded O(n²) scan."""
     rows = []
     nodes = list(graph.nodes())
+    if len(nodes) > 120:
+        nodes = sorted(nodes, key=graph.degree, reverse=True)[:120]
+
     neighbor_sets = {n: set(graph.neighbors(n)) for n in nodes}
     for i, a in enumerate(nodes):
         for b in nodes[i + 1:]:
@@ -226,9 +229,34 @@ def _temporal_summary(db: Session, case_ids: list[str]) -> dict[str, Any]:
     }
 
 
-def _base_metrics(graph: nx.Graph) -> dict[str, dict[str, float]]:
+def _base_metrics(graph: nx.Graph) -> dict[str, Any]:
+    """Compute centrality metrics with a bounded betweenness cost for larger graphs."""
     degree = {k: float(v) for k, v in nx.degree_centrality(graph).items()}
-    betweenness = {k: float(v) for k, v in nx.betweenness_centrality(graph, normalized=True, weight=None).items()}
+
+    node_count = graph.number_of_nodes()
+    if node_count <= 80:
+        betweenness = nx.betweenness_centrality(
+            graph,
+            normalized=True,
+            weight=None,
+        )
+        betweenness_mode = "exact"
+        betweenness_sampling_size = None
+    else:
+        # NetworkX documents sampled betweenness via k source nodes as the
+        # approximation path for expensive full all-pairs computation.
+        betweenness_sampling_size = min(64, max(24, int(math.sqrt(node_count) * 4)))
+        betweenness_sampling_size = min(node_count, betweenness_sampling_size)
+        betweenness = nx.betweenness_centrality(
+            graph,
+            k=betweenness_sampling_size,
+            normalized=True,
+            weight=None,
+            seed=42,
+        )
+        betweenness_mode = "approximate"
+
+    betweenness = {k: float(v) for k, v in betweenness.items()}
     closeness = {k: float(v) for k, v in nx.closeness_centrality(graph).items()}
     pagerank = _pagerank_weighted(graph)
     return {
@@ -236,6 +264,8 @@ def _base_metrics(graph: nx.Graph) -> dict[str, dict[str, float]]:
         "betweenness": betweenness,
         "closeness": closeness,
         "pagerank": pagerank,
+        "betweenness_mode": betweenness_mode,
+        "betweenness_sampling_size": betweenness_sampling_size,
     }
 
 
@@ -341,14 +371,9 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     # directly from it so a Neo4j outage or sync problem cannot block analysis.
     graph, _ = _sql_person_graph(db, clean_ids)
     graph_source = "sql_authoritative"
+    # Graph analysis is intentionally read-only and local. Neo4j synchronization
+    # is handled by graph generation/import workflows and must not block metrics.
     sync_errors: list[str] = []
-
-    # Best-effort Neo4j synchronization/status. Never blocks metric calculation.
-    for cid in clean_ids:
-        try:
-            sync_case_to_neo4j(db, cid)
-        except Exception as exc:  # noqa: BLE001
-            sync_errors.append(f"{cid}: {type(exc).__name__}: {str(exc)[:200]}")
 
     if graph.number_of_nodes() == 0:
         return {
@@ -371,8 +396,8 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
             "ranked_people": [],
             "community_sizes": {},
             "temporal": _temporal_summary(db, clean_ids),
-            "graph_sync": {"attempted": len(clean_ids), "errors": sync_errors},
-            "betweenness_mode": "exact",
+            "graph_sync": {"attempted": 0, "errors": sync_errors},
+            "betweenness_mode": "not_run",
             "betweenness_sampling_size": None,
         }
 
@@ -405,9 +430,9 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
         "ranked_people": _combined(graph, metrics, communities),
         "community_sizes": dict(community_sizes),
         "temporal": _temporal_summary(db, clean_ids),
-        "graph_sync": {"attempted": len(clean_ids), "errors": sync_errors},
-        "betweenness_mode": "exact",
-        "betweenness_sampling_size": None,
+        "graph_sync": {"attempted": 0, "errors": sync_errors},
+        "betweenness_mode": metrics["betweenness_mode"],
+        "betweenness_sampling_size": metrics["betweenness_sampling_size"],
     }
 
 def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
