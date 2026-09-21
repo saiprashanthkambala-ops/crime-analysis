@@ -893,9 +893,19 @@ input[type="file"] { padding: 6px; }
   align-items: stretch;
 }
 
+/* The assistant is a full-width workspace so navigation/chat history has
+   enough horizontal room and no unused half-column is left beside it. */
+.chat-panel {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 980px) {
   .analysis-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .chat-panel {
+    grid-column: 1;
   }
 }
 
@@ -904,7 +914,7 @@ input[type="file"] { padding: 6px; }
   padding: 0;
   display: flex;
   flex-direction: column;
-  height: 540px;
+  height: 560px;
 }
 
 .analysis-summary-content {
