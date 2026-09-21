@@ -1,38 +1,42 @@
-# Crime Analysis — reproducible deployment.
-#
-# The MVP runs self-contained (SQLite + in-process graph projection). MongoDB
-# and Neo4j are provided as optional services to mirror the PRD's target stack;
-# point DATABASE_URL / NEO4J_* at them to swap backing stores.
+# Crime Analysis — local development stack
 services:
   app:
     build: .
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:////app/data/crime_analysis.db
-      - JWT_SECRET=${JWT_SECRET:-crime-analysis-dev-secret-change-me-32bytes-minimum}
-      - AUTO_SEED=1
-      # Optional — uncomment to use Neo4j:
-      # - NEO4J_URI=bolt://neo4j:7687
-      # - NEO4J_USERNAME=neo4j
-      # - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
-    volumes:
-      - crime-analysis-data:/app/data
+      DATABASE_URL: postgresql+psycopg://crime_analysis:crime_analysis@postgres:5432/crime_analysis
+      JWT_SECRET: ${JWT_SECRET:-crime-analysis-dev-secret-change-me-32bytes-minimum}
+      AUTO_SEED: "1"
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
     depends_on:
-      - mongo
-      - neo4j
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
 
-  mongo:
-    image: mongo:7
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: crime_analysis
+      POSTGRES_USER: crime_analysis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crime_analysis}
     ports:
-      - "27017:27017"
+      - "5432:5432"
     volumes:
-      - mongo-data:/data/db
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crime_analysis -d crime_analysis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   neo4j:
     image: neo4j:5
     environment:
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-password}
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-password}
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -40,6 +44,5 @@ services:
       - neo4j-data:/data
 
 volumes:
-  crime-analysis-data:
-  mongo-data:
+  postgres-data:
   neo4j-data:

@@ -14,7 +14,11 @@ load_dotenv(BASE_DIR / ".env")
 class Settings:
     def __init__(self):
         self.APP_ENV: str = os.getenv("APP_ENV", "development").strip().lower()
-        self.DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'crime_analysis.db'}")
+        # PostgreSQL is the target system of record. Keep SQLite fallback only for the temporary migration period.
+        self.DATABASE_URL: str = os.getenv(
+            "DATABASE_URL",
+            "postgresql+psycopg://crime_analysis:crime_analysis@localhost:5432/crime_analysis",
+        )
         configured_jwt_secret = os.getenv("JWT_SECRET", "").strip()
         default_jwt_secret = "crime-analysis-dev-secret-change-me-32bytes-minimum"
 

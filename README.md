@@ -43,9 +43,7 @@ never a probability of guilt.
 
 - **Frontend:** React 18 + Vite + React Router + Cytoscape.js
 - **Backend:** Python + FastAPI
-- **Database:** SQLAlchemy ORM. Defaults to **SQLite** with JSON columns that
-  mirror the flexible Mongo-style profile documents from the PRD. MongoDB /
-  Neo4j are swappable via environment variables (see below).
+- **Database:** SQLAlchemy ORM. Uses **PostgreSQL** as the primary relational system of record through SQLAlchemy. JSON columns are used where flexible evidence/profile payloads are needed. Neo4j is an additional graph projection/analysis store.
 - **NLP/ML:** rule-based + deterministic extraction (dictionary + regex), with
   a modular signal-based relationship engine. Structured to accept spaCy /
   scikit-learn / transformers without changing the pipeline.
@@ -65,7 +63,7 @@ cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-On first startup the database is created and seeded with the synthetic demo.
+On first startup, the configured PostgreSQL schema is created and seeded with the synthetic demo.
 
 ### 2. Frontend (dev mode, optional)
 
@@ -103,7 +101,7 @@ FastAPI serves the built React app; open http://localhost:8000.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | `sqlite:///.../crime_analysis.db` | SQLAlchemy URL (set to a Mongo/Postgres URL to swap) |
+| `DATABASE_URL` | `postgresql+psycopg://crime_analysis:crime_analysis@localhost:5432/crime_analysis` | PostgreSQL SQLAlchemy connection URL |
 | `JWT_SECRET` | dev secret | Token signing key — **set in production** |
 | `JWT_EXPIRE_MINUTES` | `720` | Token lifetime |
 | `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` | empty | When set, enables the Neo4j graph store (currently the in-process projection is used) |
@@ -114,7 +112,7 @@ FastAPI serves the built React app; open http://localhost:8000.
 ### Remote Neo4j (graph database)
 
 The backend can additionally connect to a **remote** Neo4j instance
-(SQLite remains the system of record). Copy `.env.example` to `.env`, fill in
+(PostgreSQL remains the system of record). Copy `.env.example` to `.env`, fill in
 `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD`, and check connectivity:
 
 ```bash

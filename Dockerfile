@@ -21,7 +21,6 @@ COPY --from=frontend /app/frontend/dist ./frontend/dist
 WORKDIR /app/backend
 EXPOSE 8000
 
-ENV DATABASE_URL=sqlite:////app/data/crime_analysis.db
-RUN mkdir -p /app/data
+ENV DATABASE_URL=postgresql+psycopg://crime_analysis:crime_analysis@postgres:5432/crime_analysis
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
