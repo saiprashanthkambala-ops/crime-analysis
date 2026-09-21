@@ -59,7 +59,7 @@ class LoginResponse(BaseModel):
     user: dict
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=LoginResponse)
 def login(response: Response, request: Request, body: LoginBody, db: Session = Depends(get_db)):
     _check_login_rate_limit(request, body.username)
     user = db.query(User).filter(User.username == body.username).first()
