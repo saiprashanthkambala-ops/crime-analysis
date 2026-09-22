@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import defaultdict, deque
+from threading import Lock
 from typing import Any
 
 import networkx as nx
@@ -27,6 +29,35 @@ REL_TYPES = [
 
 class GraphAnalysisUnavailable(RuntimeError):
     """Graph analysis data cannot be loaded."""
+
+
+_ANALYSIS_CACHE_TTL_SECONDS = 20.0
+_ANALYSIS_CACHE_MAX_ITEMS = 64
+_analysis_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+_analysis_cache_lock = Lock()
+
+
+def _get_cached_analysis(case_ids: list[str]) -> dict[str, Any] | None:
+    key = tuple(sorted(set(case_ids)))
+    now = time.monotonic()
+    with _analysis_cache_lock:
+        item = _analysis_cache.get(key)
+        if item is None:
+            return None
+        created_at, value = item
+        if now - created_at > _ANALYSIS_CACHE_TTL_SECONDS:
+            _analysis_cache.pop(key, None)
+            return None
+        return value
+
+
+def _set_cached_analysis(case_ids: list[str], value: dict[str, Any]) -> None:
+    key = tuple(sorted(set(case_ids)))
+    with _analysis_cache_lock:
+        _analysis_cache[key] = (time.monotonic(), value)
+        if len(_analysis_cache) > _ANALYSIS_CACHE_MAX_ITEMS:
+            oldest_key = min(_analysis_cache, key=lambda item: _analysis_cache[item][0])
+            _analysis_cache.pop(oldest_key, None)
 
 
 def _fetch_person_graph(case_ids: list[str]) -> dict[str, Any]:
@@ -378,6 +409,10 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     for cid in clean_ids:
         ensure_case_access(db, user, cid)
 
+    cached = _get_cached_analysis(clean_ids)
+    if cached is not None:
+        return cached
+
     # SQL is the authoritative relationship store. Calculate metrics directly
     # from it. Neo4j synchronization is a separate explicit operation and must
     # not block the interactive analysis request.
@@ -420,7 +455,7 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     for row in communities:
         community_sizes[row["communityId"]] += 1
 
-    return {
+    result = {\n
         "case_ids": clean_ids,
         "engine": "networkx-local",
         "graph_source": graph_source,
@@ -444,6 +479,8 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
         "betweenness_mode": "exact",
         "betweenness_sampling_size": None,
     }
+    _set_cached_analysis(clean_ids, result)
+    return result
 
 def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
     return analyze_cases(db, user, [case_id])
