@@ -364,18 +364,12 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     for cid in clean_ids:
         ensure_case_access(db, user, cid)
 
-    # SQL is the authoritative relationship store. Graph metrics are calculated
-    # directly from it so a Neo4j outage or sync problem cannot block analysis.
+    # SQL is the authoritative relationship store. Calculate metrics directly
+    # from it. Neo4j synchronization is a separate explicit operation and must
+    # not block the interactive analysis request.
     graph, _ = _sql_person_graph(db, clean_ids)
     graph_source = "sql_authoritative"
     sync_errors: list[str] = []
-
-    # Best-effort Neo4j synchronization/status. Never blocks metric calculation.
-    for cid in clean_ids:
-        try:
-            sync_case_to_neo4j(db, cid)
-        except Exception as exc:  # noqa: BLE001
-            sync_errors.append(f"{cid}: {type(exc).__name__}: {str(exc)[:200]}")
 
     if graph.number_of_nodes() == 0:
         return {
