@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, streamAnalysisChat, streamAnalysisGenerate } from '../api'
+import { api, streamAnalysisChat } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 import MarkdownMessage from '../components/MarkdownMessage'
 import { useI18n } from '../i18n'
+import { useAnalysisRuntime } from '../analysisRuntime'
 
 const REQUEST_TIMEOUT_MS = 300000
 
@@ -20,28 +21,33 @@ async function withTimeout(path, options = {}) {
 export default function Analysis() {
   const { t } = useI18n()
   const [cases, setCases] = useState([])
-  const [selected, setSelected] = useState([])
-  const [analysis, setAnalysis] = useState('')
-  const [context, setContext] = useState(null)
-  const [graph, setGraph] = useState({ nodes: [], edges: [] })
-  const [syncStatus, setSyncStatus] = useState(null)
-  const [graphStatus, setGraphStatus] = useState('not_loaded')
   const [nvidiaReady, setNvidiaReady] = useState(null)
-  const [graphAnalysis, setGraphAnalysis] = useState(null)
-  const [graphAnalysisLoading, setGraphAnalysisLoading] = useState(false)
-  const [graphAnalysisCaseId, setGraphAnalysisCaseId] = useState('')
   const [loading, setLoading] = useState(true)
-  const [generating, setGenerating] = useState(false)
   const [message, setMessage] = useState('')
-  const [messages, setMessages] = useState([])
-  const [chatting, setChatting] = useState(false)
   const [err, setErr] = useState('')
-  const [agentTools, setAgentTools] = useState({})
-  const [suspicious, setSuspicious] = useState([])
-  const [analysisProgress, setAnalysisProgress] = useState(0)
-  const [graphProgress, setGraphProgress] = useState(0)
+  const [selectedEntity, setSelectedEntity] = useState(null)
+  const [entityLoading, setEntityLoading] = useState(false)
   const analysisProgressTimer = useRef(null)
   const graphProgressTimer = useRef(null)
+
+  const {
+    selected, setSelected,
+    analysis, setAnalysis,
+    context, setContext,
+    graph, setGraph,
+    syncStatus, setSyncStatus,
+    graphStatus, setGraphStatus,
+    graphAnalysis, setGraphAnalysis,
+    graphAnalysisLoading, setGraphAnalysisLoading,
+    graphAnalysisCaseId, setGraphAnalysisCaseId,
+    generating, setGenerating,
+    messages, setMessages,
+    chatting, setChatting,
+    agentTools, setAgentTools,
+    suspicious, setSuspicious,
+    analysisProgress, setAnalysisProgress,
+    graphProgress, setGraphProgress,
+  } = useAnalysisRuntime()
 
   const startEstimatedProgress = (setter, timerRef) => {
     window.clearInterval(timerRef.current)
@@ -56,11 +62,6 @@ export default function Analysis() {
     timerRef.current = null
     setter(100)
   }
-
-  useEffect(() => () => {
-    window.clearInterval(analysisProgressTimer.current)
-    window.clearInterval(graphProgressTimer.current)
-  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -185,58 +186,61 @@ export default function Analysis() {
   }
 
   const runAnalysis = async () => {
-    if (!selected.length) return
     setErr('')
     setGenerating(true)
-    setAnalysis('')
     startEstimatedProgress(setAnalysisProgress, analysisProgressTimer)
 
-    const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
-    if (firstGraphCase) setGraphAnalysisCaseId(firstGraphCase)
-
-    // Graph metrics are intentionally independent from the AI summary. The
-    // investigator should see the Nemotron response as soon as it is ready
-    // instead of waiting for the heavier graph-metrics pipeline.
-    const graphPromise = firstGraphCase
-      ? withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
-      : Promise.resolve(null)
-
-    if (firstGraphCase) {
-      setGraphAnalysisLoading(true)
-      void graphPromise
-        .then((graphData) => {
-          if (graphData) setGraphAnalysis(graphData)
-        })
-        .catch((e) => {
-          if (e.name !== 'AbortError') {
-            setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + e.message)
-          }
-          setGraphAnalysis(null)
-        })
-        .finally(() => setGraphAnalysisLoading(false))
-    }
-
     try {
-      const data = await streamAnalysisGenerate(
-        selected,
-        (token) => {
-          setAnalysis((prev) => (prev || '') + token)
-          setAnalysisProgress((current) => Math.min(99, current + 1))
-        },
-        { timeoutMs: 90000 }
-      )
+      const data = await withTimeout('/analysis/generate', {
+        method: 'POST',
+        body: JSON.stringify({ case_ids: selected }),
+      })
 
-      if (data.context) setContext(data.context)
+      setAnalysis(data.analysis || '')
+      setContext(data.context || null)
       finishProgress(setAnalysisProgress, analysisProgressTimer)
+      void refreshSuspicious()
+      const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
+      if (firstGraphCase) {
+        setGraphAnalysisCaseId(firstGraphCase)
+        setGraphAnalysisLoading(true)
+        void withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
+          .then((graphData) => setGraphAnalysis(graphData))
+          .catch((graphError) => {
+            if (graphError.name !== 'AbortError') {
+              setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + graphError.message)
+            }
+          })
+          .finally(() => setGraphAnalysisLoading(false))
+      }
+      // Generate the selected-case graph explicitly after AI analysis.
+      void generateGraph()
     } catch (e) {
       setErr(
         e.name === 'AbortError'
-          ? 'Analysis timed out after 90 seconds. Check NVIDIA_API_KEY and the backend server log.'
+          ? 'Analysis timed out after 5 minutes. Check NVIDIA_API_KEY and the backend server log.'
           : e.message
       )
-      finishProgress(setAnalysisProgress, analysisProgressTimer)
     } finally {
+      finishProgress(setAnalysisProgress, analysisProgressTimer)
       setGenerating(false)
+    }
+  }
+
+  const openEntity = async (node) => {
+    if (!node?.id) return
+    setSelectedEntity({ node })
+    setEntityLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('node_id', String(node.id))
+      if (node.case_id) params.set('case_id', String(node.case_id))
+      const details = await withTimeout('/graph/entity?' + params.toString())
+      setSelectedEntity((prev) => ({ ...(prev || {}), details }))
+    } catch (e) {
+      setSelectedEntity((prev) => ({ ...(prev || {}), error: e.message }))
+    } finally {
+      setEntityLoading(false)
     }
   }
 
@@ -304,6 +308,8 @@ export default function Analysis() {
 
       if (data.context) setContext(data.context)
       setAgentTools((prev) => ({ ...prev, [messageIndex + 1]: data.tool || data.mode || 'case_context' }))
+      void generateGraph()
+      void refreshSuspicious()
     } catch (e) {
       const detail = e.name === 'AbortError'
         ? 'Chat timed out after 5 minutes. Check NVIDIA_API_KEY, NVIDIA connectivity, and the backend log.'
@@ -752,7 +758,7 @@ export default function Analysis() {
         }
       >
         {graph.nodes?.length ? (
-          <NetworkGraph data={graph} onSelectNode={() => {}} />
+          <NetworkGraph data={graph} onSelectNode={openEntity} />
         ) : (
           <div className="empty muted">
             {t('prompt_select_generate_graph')}
@@ -800,6 +806,49 @@ export default function Analysis() {
             </tbody>
           </table>
         </Panel>
+      )}
+
+      {selectedEntity && (
+        <div className="entity-modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelectedEntity(null) }}>
+          <div className="entity-modal" role="dialog" aria-modal="true" aria-labelledby="entity-modal-title">
+            <button className="entity-modal-close" type="button" onClick={() => setSelectedEntity(null)} aria-label="Close entity details">×</button>
+            <div className="entity-modal-grid">
+              <div>
+                <div className="entity-modal-kicker">Entity details</div>
+                <h3 id="entity-modal-title">{selectedEntity.details?.entity?.original_value || selectedEntity.node?.label || selectedEntity.node?.id}</h3>
+                <div className="entity-detail-list">
+                  <div><span>Type</span><strong>{selectedEntity.details?.entity?.entity_type || selectedEntity.node?.type || '—'}</strong></div>
+                  <div><span>Normalized value</span><strong className="mono">{selectedEntity.details?.entity?.normalized_value || selectedEntity.node?.id || '—'}</strong></div>
+                  <div><span>Confidence</span><strong>{selectedEntity.details?.entity?.confidence ?? '—'}</strong></div>
+                  <div><span>Extraction method</span><strong>{selectedEntity.details?.entity?.extraction_method || '—'}</strong></div>
+                  <div><span>Observed date</span><strong>{selectedEntity.details?.entity?.observed_date || '—'}</strong></div>
+                  <div><span>Observed time</span><strong>{selectedEntity.details?.entity?.observed_time || '—'}</strong></div>
+                </div>
+              </div>
+              <div className="entity-modal-source">
+                <div className="entity-modal-kicker">Case & source</div>
+                <div className="entity-source-card">
+                  <div className="entity-source-label">Case</div>
+                  <strong>{selectedEntity.details?.case?.name || selectedEntity.node?.case_id || 'Not available'}</strong>
+                  <span className="muted small mono">{selectedEntity.details?.case?.id || selectedEntity.node?.case_id || ''}</span>
+                </div>
+                <div className="entity-source-card">
+                  <div className="entity-source-label">Source file / report</div>
+                  {selectedEntity.details?.document ? (
+                    <>
+                      <strong>{selectedEntity.details.document.filename || 'Unnamed document'}</strong>
+                      <span className="muted small">{selectedEntity.details.document.file_type || 'Document'} · {selectedEntity.details.document.status || '—'}</span>
+                      <span className="muted small mono">{selectedEntity.details.document.id || ''}</span>
+                      {selectedEntity.details.document.created_at && <span className="muted small">Imported {new Date(selectedEntity.details.document.created_at).toLocaleString()}</span>}
+                    </>
+                  ) : <span className="muted">No source file is recorded for this entity.</span>}
+                </div>
+                {entityLoading && <div className="muted small">Loading full entity details…</div>}
+                {selectedEntity.error && <div className="error-box small">{selectedEntity.error}</div>}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
