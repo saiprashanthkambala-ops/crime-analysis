@@ -66,11 +66,11 @@ def _llm_messages(
             "note": tool_result.get("note"),
         }
     messages = [{"role": "system", "content": system}]
-    for item in (history or [])[-6:]:
+    for item in (history or [])[-2:]:
         role = item.get("role")
         content = item.get("content", "")
         if role in {"user", "assistant"} and content:
-            messages.append({"role": role, "content": str(content)[:3000]})
+            messages.append({"role": role, "content": str(content)[:1200]})
     messages.append({"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)})
     return messages
 
