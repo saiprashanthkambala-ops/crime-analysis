@@ -127,11 +127,11 @@ def build_llm_context(
     context: dict,
     *,
     max_cases: int = 5,
-    max_people: int = 30,
-    max_entities: int = 30,
-    max_relationships: int = 25,
-    max_evidence: int = 25,
-    max_chars: int = 12000,
+    max_people: int = 24,
+    max_entities: int = 20,
+    max_relationships: int = 20,
+    max_evidence: int = 16,
+    max_chars: int = 9000,
 ) -> dict:
     """Create a small deterministic context for the hosted model."""
     compact = {
