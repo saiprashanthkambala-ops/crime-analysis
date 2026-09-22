@@ -255,14 +255,14 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
         log_audit(db, user.id, "analysis_chat_fast_path", "case", ",".join(context["case_ids"]))
         return {"answer": fast_answer, "context": context, "mode": "deterministic"}
 
+    # Fast cache lookup is performed after the deterministic tool decision so
+    # cache entries remain tied to the actual tool path and selected-case context.
     cache_key = _chat_cache_key(context, body.message, body.history)
     cached_answer = get_cached_stream(cache_key)
     if cached_answer is not None:
         log_audit(db, user.id, "analysis_chat_cache_hit", "case", ",".join(context["case_ids"]))
         return _cached_stream_response(cached_answer, context)
 
-    # Keep the tool layer deterministic, but avoid expensive graph/Neo4j work
-    # for ordinary questions that do not require graph metrics.
     tool_result = run_investigation_tools(db, user, context["case_ids"], body.message, context)
     tool_observations = tool_result.get("observations")
     messages = _llm_messages(
