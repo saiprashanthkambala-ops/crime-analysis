@@ -210,38 +210,65 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
             "or suspicious connection candidates."
         )
         log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
-        return {"answer": answer, "context": context}
+        return {"answer": answer, "context": context, "mode": "deterministic"}
 
     fast_answer = _fast_answer(context, body.message)
     if fast_answer:
         log_audit(db, user.id, "analysis_chat_fast_path", "case", ",".join(context["case_ids"]))
         return {"answer": fast_answer, "context": context, "mode": "deterministic"}
 
+    # Keep the tool layer deterministic, but avoid expensive graph/Neo4j work
+    # for ordinary questions that do not require graph metrics.
     tool_result = run_investigation_tools(db, user, context["case_ids"], body.message, context)
+    tool_observations = tool_result.get("observations")
     messages = _llm_messages(
         context,
-        "Answer the investigator's question. The deterministic investigation tool has already produced the observations below. Use those observations as the source of truth; do not invent additional graph values.",
+        "Answer the investigator's question using ONLY the supplied case data and deterministic tool observations. Be concise and evidence-grounded. Do not invent values.",
         body.message,
-        body.history,
+        body.history[-4:] if body.history else [],
     )
     messages.append({
         "role": "user",
-        "content": json.dumps({"tool_name": tool_result.get("tool"), "tool_status": tool_result.get("status"), "tool_observations": tool_result.get("observations"), "tool_note": tool_result.get("note")}, default=str, ensure_ascii=False),
+        "content": json.dumps(
+            {
+                "tool_name": tool_result.get("tool"),
+                "tool_status": tool_result.get("status"),
+                "tool_observations": tool_observations,
+                "tool_note": tool_result.get("note"),
+            },
+            default=str,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
     })
 
     def event_stream():
         try:
             for token in stream_chat(messages):
-                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False) + "\n"
+                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
             log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
-            yield json.dumps({"type": "done", "context": context, "tool": tool_result.get("tool"), "tool_status": tool_result.get("status")}, default=str) + "\n"
+            yield json.dumps(
+                {
+                    "type": "done",
+                    "context": context,
+                    "tool": tool_result.get("tool"),
+                    "tool_status": tool_result.get("status"),
+                    "mode": "streaming",
+                },
+                default=str,
+                separators=(",", ":"),
+            ) + "\n"
         except NVIDIAClientError as exc:
-            yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
+            yield json.dumps({"type": "error", "detail": str(exc)}, separators=(",", ":")) + "\n"
         except Exception:
-            yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}) + "\n"
+            yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}, separators=(",", ":")) + "\n"
 
     return StreamingResponse(
         event_stream(),
-        media_type="application/x-ndjson",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
