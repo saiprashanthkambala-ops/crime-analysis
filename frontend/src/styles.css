@@ -893,6 +893,25 @@ input[type="file"] { padding: 6px; }
   align-items: stretch;
 }
 
+/* Analysis page panel headers use a darker blue for clearer hierarchy. */
+.analysis-page .panel-head {
+  background: #1f5f8b;
+  color: #ffffff;
+  border-bottom-color: #17496b;
+}
+
+.analysis-page .panel-head h3,
+.analysis-page .panel-head .muted {
+  color: #ffffff;
+}
+
+/* Keep the assistant panel full-width so its content uses the available
+   workspace instead of leaving an unused half-column beside it. */
+.analysis-page .chat-panel {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
 @media (max-width: 980px) {
   .analysis-workspace {
     grid-template-columns: 1fr;

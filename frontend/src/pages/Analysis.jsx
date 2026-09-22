@@ -191,48 +191,51 @@ export default function Analysis() {
     setAnalysis('')
     startEstimatedProgress(setAnalysisProgress, analysisProgressTimer)
 
+    const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
+    if (firstGraphCase) setGraphAnalysisCaseId(firstGraphCase)
+
+    // Graph metrics are intentionally independent from the AI summary. The
+    // investigator should see the Nemotron response as soon as it is ready
+    // instead of waiting for the heavier graph-metrics pipeline.
+    const graphPromise = firstGraphCase
+      ? withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
+      : Promise.resolve(null)
+
+    if (firstGraphCase) {
+      setGraphAnalysisLoading(true)
+      void graphPromise
+        .then((graphData) => {
+          if (graphData) setGraphAnalysis(graphData)
+        })
+        .catch((e) => {
+          if (e.name !== 'AbortError') {
+            setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + e.message)
+          }
+          setGraphAnalysis(null)
+        })
+        .finally(() => setGraphAnalysisLoading(false))
+    }
+
     try {
-      // Stream the AI summary independently. Graph metrics can start in parallel
-      // because they are SQL/NetworkX backed and no longer depend on Neo4j sync.
-      const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
-      if (firstGraphCase) setGraphAnalysisCaseId(firstGraphCase)
-      if (firstGraphCase) setGraphAnalysisLoading(true)
-
-      const graphPromise = firstGraphCase
-        ? withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
-        : Promise.resolve(null)
-
-      const analysisPromise = streamAnalysisGenerate(
+      const data = await streamAnalysisGenerate(
         selected,
-        (token) => setAnalysis((prev) => (prev || '') + token),
+        (token) => {
+          setAnalysis((prev) => (prev || '') + token)
+          setAnalysisProgress((current) => Math.min(99, current + 1))
+        },
         { timeoutMs: 90000 }
       )
 
-      const [data, graphData] = await Promise.allSettled([analysisPromise, graphPromise])
-
-      if (data.status === 'fulfilled') {
-        if (data.value.context) setContext(data.value.context)
-        finishProgress(setAnalysisProgress, analysisProgressTimer)
-      } else {
-        throw data.reason
-      }
-
-      if (graphData.status === 'fulfilled' && graphData.value) {
-        setGraphAnalysis(graphData.value)
-      } else if (graphData.status === 'rejected' && graphData.reason?.name !== 'AbortError') {
-        setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + graphData.reason.message)
-      } else if (firstGraphCase) {
-        setGraphAnalysis(null)
-      }
+      if (data.context) setContext(data.context)
+      finishProgress(setAnalysisProgress, analysisProgressTimer)
     } catch (e) {
       setErr(
         e.name === 'AbortError'
           ? 'Analysis timed out after 90 seconds. Check NVIDIA_API_KEY and the backend server log.'
           : e.message
       )
-    } finally {
-      setGraphAnalysisLoading(false)
       finishProgress(setAnalysisProgress, analysisProgressTimer)
+    } finally {
       setGenerating(false)
     }
   }

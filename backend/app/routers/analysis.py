@@ -42,6 +42,7 @@ def _llm_messages(
     task: str,
     question: str | None = None,
     history: list[dict[str, str]] | None = None,
+    tool_result: dict | None = None,
 ):
     system = (
         "You are the Crime Analysis investigation assistant. "
@@ -57,12 +58,19 @@ def _llm_messages(
     }
     if question:
         payload["investigator_question"] = question
+    if tool_result:
+        payload["deterministic_tool_observations"] = {
+            "tool_name": tool_result.get("tool"),
+            "status": tool_result.get("status"),
+            "observations": tool_result.get("observations"),
+            "note": tool_result.get("note"),
+        }
     messages = [{"role": "system", "content": system}]
-    for item in (history or [])[-6:]:
+    for item in (history or [])[-2:]:
         role = item.get("role")
         content = item.get("content", "")
         if role in {"user", "assistant"} and content:
-            messages.append({"role": role, "content": str(content)[:3000]})
+            messages.append({"role": role, "content": str(content)[:1200]})
     messages.append({"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)})
     return messages
 
@@ -279,27 +287,13 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
         return _cached_stream_response(cached_answer, context)
 
     tool_result = run_investigation_tools(db, user, context["case_ids"], body.message, context)
-    tool_observations = tool_result.get("observations")
     messages = _llm_messages(
         context,
         "Answer the investigator's question using ONLY the supplied case data and deterministic tool observations. Be concise and evidence-grounded. Do not invent values.",
         body.message,
         body.history[-4:] if body.history else [],
+        tool_result,
     )
-    messages.append({
-        "role": "user",
-        "content": json.dumps(
-            {
-                "tool_name": tool_result.get("tool"),
-                "tool_status": tool_result.get("status"),
-                "tool_observations": tool_observations,
-                "tool_note": tool_result.get("note"),
-            },
-            default=str,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ),
-    })
 
     def event_stream():
         chunks: list[str] = []

@@ -78,9 +78,16 @@ def _provider_error(prefix: str, exc: APIStatusError) -> NVIDIAClientError:
 def chat(
     messages: list[dict[str, str]],
     stream: bool = False,
-    enable_thinking: bool = True,
+    enable_thinking: bool | None = None,
 ) -> Any:
-    """Make one bounded, non-streaming NVIDIA chat request."""
+    """Make one bounded NVIDIA chat request using the configured reasoning mode."""
+    thinking = settings.NVIDIA_ENABLE_THINKING if enable_thinking is None else enable_thinking
+    extra_body: dict[str, Any] = {
+        "chat_template_kwargs": {"enable_thinking": thinking},
+    }
+    if thinking and settings.NVIDIA_REASONING_BUDGET > 0:
+        extra_body["reasoning_budget"] = settings.NVIDIA_REASONING_BUDGET
+
     try:
         return _client().chat.completions.create(
             model=settings.NVIDIA_MODEL,
@@ -88,7 +95,7 @@ def chat(
             temperature=settings.NVIDIA_TEMPERATURE,
             top_p=settings.NVIDIA_TOP_P,
             max_tokens=settings.NVIDIA_MAX_TOKENS,
-            extra_body={"chat_template_kwargs": {"enable_thinking": enable_thinking}},
+            extra_body=extra_body,
             stream=stream,
         )
     except APITimeoutError as exc:
@@ -104,7 +111,10 @@ def chat(
 
 
 def stream_chat(messages: list[dict[str, str]]) -> Iterator[str]:
-    """Yield answer text as soon as NVIDIA emits streamed deltas."""
+    """Yield answer text immediately with reasoning disabled for interactive speed."""
+    extra_body: dict[str, Any] = {
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
     try:
         stream = _client().chat.completions.create(
             model=settings.NVIDIA_MODEL,
@@ -112,7 +122,7 @@ def stream_chat(messages: list[dict[str, str]]) -> Iterator[str]:
             temperature=settings.NVIDIA_TEMPERATURE,
             top_p=settings.NVIDIA_TOP_P,
             max_tokens=settings.NVIDIA_MAX_TOKENS,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=extra_body,
             stream=True,
         )
         for chunk in stream:
