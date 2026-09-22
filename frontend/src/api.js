@@ -30,7 +30,7 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
   const controller = new AbortController()
   const timeout = window.setTimeout(
     () => controller.abort(),
-    options.timeoutMs || 300000
+    options.timeoutMs || 90000
   )
 
   try {
