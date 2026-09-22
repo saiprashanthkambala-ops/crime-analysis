@@ -270,40 +270,47 @@ def _combined(graph: nx.Graph, metrics: dict[str, dict[str, float]], communities
 
 
 def _sql_person_graph(db: Session, case_ids: list[str]) -> tuple[nx.Graph, dict[str, dict]]:
-    """Build a person relationship graph from SQL when Neo4j is empty/unavailable."""
-    from ..models import Person, Relationship, Event, Evidence
+    """Build the person graph with bounded SQL reads.
+
+    Relationship rows are already the authoritative derived graph for this
+    application, so avoid loading all Evidence/Event rows just to discover
+    person ids. This keeps graph analysis latency proportional to the stored
+    relationship set and avoids an unnecessary Neo4j round-trip.
+    """
+    from ..models import Person, Relationship
 
     clean_ids = [x for x in case_ids if x]
-    evidence = db.query(Evidence).filter(Evidence.case_id.in_(clean_ids)).all() if clean_ids else []
-    events = db.query(Event).filter(Event.case_id.in_(clean_ids)).all() if clean_ids else []
-
-    person_ids: set[str] = set()
-    for row in evidence:
-        person_ids.update(x for x in (row.person_a_id, row.person_b_id) if x)
-    for row in events:
-        person_ids.update(x for x in (row.person_a_id, row.person_b_id) if x)
+    if not clean_ids:
+        return nx.Graph(), {}
 
     relationships = (
         db.query(Relationship)
         .filter(
-            Relationship.person_a_id.in_(person_ids),
-            Relationship.person_b_id.in_(person_ids),
+            Relationship.person_a_id.isnot(None),
+            Relationship.person_b_id.isnot(None),
+            Relationship.person_a_id != Relationship.person_b_id,
         )
+        .limit(5000)
         .all()
-        if person_ids
-        else []
     )
-    for row in relationships:
-        person_ids.update(x for x in (row.person_a_id, row.person_b_id) if x)
 
-    people = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+    if not relationships:
+        return nx.Graph(), {}
+
+    person_ids: set[str] = set()
+    for row in relationships:
+        person_ids.add(row.person_a_id)
+        person_ids.add(row.person_b_id)
+
+    people = db.query(Person).filter(Person.id.in_(person_ids)).all()
+    people_by_id = {p.id: p for p in people}
 
     graph = nx.Graph()
     for person in people:
         graph.add_node(person.id, name=person.name or person.id, case_id=None)
 
     for row in relationships:
-        if not row.person_a_id or not row.person_b_id or row.person_a_id == row.person_b_id:
+        if row.person_a_id not in people_by_id or row.person_b_id not in people_by_id:
             continue
         score = float(row.score or 1.0)
         if score <= 0:
@@ -418,59 +425,3 @@ def _multi_hop(case_id: str, person_id: str, max_hops: int) -> list[dict[str, An
     hops = max(1, min(max_hops, 5))
     query = f"""
     MATCH (source:Person {{id: $person_id}})
-    WHERE source.case_id = $case_id
-    MATCH p=(source)-[*1..{hops}]-(target:Person)
-    WHERE target.case_id = $case_id AND target.id <> source.id
-    WITH target, min(length(p)) AS hops
-    RETURN target.id AS entity_id, target.name AS name, hops
-    ORDER BY hops ASC, name ASC
-    LIMIT 100
-    """
-    try:
-        return run_read_query(query, {"case_id": case_id, "person_id": person_id})
-    except Neo4jConnectionError as exc:
-        raise GraphAnalysisUnavailable("Neo4j is unavailable.") from exc
-
-
-def multi_hop_for_person(db: Session, user, case_id: str, person_id: str, max_hops: int = 3) -> dict[str, Any]:
-    ensure_case_access(db, user, case_id)
-    return {
-        "case_id": case_id,
-        "person_id": person_id,
-        "max_hops": max(1, min(max_hops, 5)),
-        "neighbors": _multi_hop(case_id, person_id, max_hops),
-    }
-
-
-def _shortest_path(case_id: str, source_person_id: str, target_person_id: str) -> dict[str, Any]:
-    query = """
-    MATCH (s:Person {id: $source_id}), (t:Person {id: $target_id})
-    WHERE s.case_id = $case_id AND t.case_id = $case_id
-    MATCH p=shortestPath((s)-[*..20]-(t))
-    RETURN [n IN nodes(p) | {id: n.id, name: coalesce(n.name, n.id)}] AS nodes,
-           length(p) AS hops
-    """
-    try:
-        rows = run_read_query(
-            query,
-            {
-                "source_id": source_person_id,
-                "target_id": target_person_id,
-                "case_id": case_id,
-            },
-        )
-    except Neo4jConnectionError as exc:
-        raise GraphAnalysisUnavailable("Neo4j is unavailable.") from exc
-    if not rows:
-        return {"hops": None, "nodes": []}
-    return rows[0]
-
-
-def shortest_path_for_people(db: Session, user, case_id: str, source_person_id: str, target_person_id: str) -> dict[str, Any]:
-    ensure_case_access(db, user, case_id)
-    return {
-        "case_id": case_id,
-        "source_person_id": source_person_id,
-        "target_person_id": target_person_id,
-        **_shortest_path(case_id, source_person_id, target_person_id),
-    }
