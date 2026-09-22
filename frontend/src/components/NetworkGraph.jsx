@@ -26,6 +26,11 @@ export default function NetworkGraph({ data, onSelectNode }) {
     if (!ref.current || !data) return
     if (cyRef.current) cyRef.current.destroy()
 
+    const nodeCount = (data.nodes || []).length
+    const layout = nodeCount > 120
+      ? { name: 'breadthfirst', directed: true, padding: 30, spacingFactor: 1.2, animate: false }
+      : { name: 'cose', animate: false, padding: 30, nodeRepulsion: 6000 }
+
     const cy = cytoscape({
       container: ref.current,
       elements: [
@@ -109,7 +114,7 @@ export default function NetworkGraph({ data, onSelectNode }) {
           style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b' },
         },
       ],
-      layout: { name: 'cose', animate: false, padding: 30, nodeRepulsion: 6000 },
+      layout,
     })
 
     cy.on('tap', 'node', (evt) => {
