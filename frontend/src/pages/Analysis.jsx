@@ -4,6 +4,8 @@ import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 import MarkdownMessage from '../components/MarkdownMessage'
 import { useI18n } from '../i18n'
+import { useAnalysisRuntime } from '../analysisRuntime'
+import EntityDetailModal from '../components/EntityDetailModal'
 
 const REQUEST_TIMEOUT_MS = 300000
 
@@ -20,26 +22,32 @@ async function withTimeout(path, options = {}) {
 export default function Analysis() {
   const { t } = useI18n()
   const [cases, setCases] = useState([])
-  const [selected, setSelected] = useState([])
-  const [analysis, setAnalysis] = useState('')
-  const [context, setContext] = useState(null)
-  const [graph, setGraph] = useState({ nodes: [], edges: [] })
-  const [syncStatus, setSyncStatus] = useState(null)
-  const [graphStatus, setGraphStatus] = useState('not_loaded')
   const [nvidiaReady, setNvidiaReady] = useState(null)
-  const [graphAnalysis, setGraphAnalysis] = useState(null)
-  const [graphAnalysisLoading, setGraphAnalysisLoading] = useState(false)
-  const [graphAnalysisCaseId, setGraphAnalysisCaseId] = useState('')
   const [loading, setLoading] = useState(true)
-  const [generating, setGenerating] = useState(false)
   const [message, setMessage] = useState('')
-  const [messages, setMessages] = useState([])
-  const [chatting, setChatting] = useState(false)
   const [err, setErr] = useState('')
-  const [agentTools, setAgentTools] = useState({})
-  const [suspicious, setSuspicious] = useState([])
-  const [analysisProgress, setAnalysisProgress] = useState(0)
-  const [graphProgress, setGraphProgress] = useState(0)
+  const [selectedNode, setSelectedNode] = useState(null)
+  const [entityDetail, setEntityDetail] = useState(null)
+  const [entityLoading, setEntityLoading] = useState(false)
+
+  const {
+    selected, setSelected,
+    analysis, setAnalysis,
+    context, setContext,
+    graph, setGraph,
+    syncStatus, setSyncStatus,
+    graphStatus, setGraphStatus,
+    graphAnalysis, setGraphAnalysis,
+    graphAnalysisLoading, setGraphAnalysisLoading,
+    graphAnalysisCaseId, setGraphAnalysisCaseId,
+    generating, setGenerating,
+    messages, setMessages,
+    chatting, setChatting,
+    agentTools, setAgentTools,
+    suspicious, setSuspicious,
+    analysisProgress, setAnalysisProgress,
+    graphProgress, setGraphProgress,
+  } = useAnalysisRuntime()
   const analysisProgressTimer = useRef(null)
   const graphProgressTimer = useRef(null)
 
@@ -92,6 +100,32 @@ export default function Analysis() {
     })
     setGraphAnalysis(null)
     void refreshSyncStatus(selected.includes(id) ? '' : id)
+  }
+
+  const openNodeDetails = async (node) => {
+    if (!node?.id) return
+    setSelectedNode(node)
+    setEntityDetail(null)
+    setEntityLoading(true)
+    try {
+      const params = new URLSearchParams({
+        node_id: String(node.id),
+        node_type: String(node.type || ''),
+        case_id: String(node.case_id || graphAnalysisCaseId || selected[0] || ''),
+      })
+      const data = await withTimeout('/graph/node-details?' + params.toString())
+      setEntityDetail(data)
+    } catch (e) {
+      setErr(e.name === 'AbortError' ? t('entity_details_timeout') : e.message)
+    } finally {
+      setEntityLoading(false)
+    }
+  }
+
+  const closeNodeDetails = () => {
+    setSelectedNode(null)
+    setEntityDetail(null)
+    setEntityLoading(false)
   }
 
   const refreshSuspicious = async () => {
@@ -223,7 +257,7 @@ export default function Analysis() {
           setAnalysis((prev) => (prev || '') + token)
           setAnalysisProgress((current) => Math.min(99, current + 1))
         },
-        { timeoutMs: 90000 }
+        { timeoutMs: 90000, history }
       )
 
       if (data.context) setContext(data.context)
@@ -752,13 +786,22 @@ export default function Analysis() {
         }
       >
         {graph.nodes?.length ? (
-          <NetworkGraph data={graph} onSelectNode={() => {}} />
+          <NetworkGraph data={graph} onSelectNode={openNodeDetails} />
         ) : (
           <div className="empty muted">
             {t('prompt_select_generate_graph')}
           </div>
         )}
       </Panel>
+
+      {(selectedNode || entityLoading) && (
+        <EntityDetailModal
+          node={selectedNode}
+          detail={entityDetail}
+          loading={entityLoading}
+          onClose={closeNodeDetails}
+        />
+      )}
 
       {context?.relationships?.length > 0 && (
         <Panel title={t('top_evidence_relationships')}>
