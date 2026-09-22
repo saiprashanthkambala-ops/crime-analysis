@@ -622,4 +622,4 @@ def shortest_path_for_people(db: Session, user, case_id: str, source_person_id: 
         "source_person_id": source_person_id,
         "target_person_id": target_person_id,
         **_shortest_path(case_id, source_person_id, target_person_id),
-    }
+    }
