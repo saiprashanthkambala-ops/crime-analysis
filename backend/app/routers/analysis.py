@@ -196,6 +196,42 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
     context = build_case_analysis(db, user, body.case_ids or None)
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
+
+    def event_stream():
+        chunks: list[str] = []
+        try:
+            # Disable hidden reasoning for the interactive summary and stream the
+            # visible answer immediately to reduce perceived latency.
+            for token in stream_chat(
+                _llm_messages(
+                    context,
+                    "Generate a concise investigator-facing analysis of the selected case(s). "
+                    "Highlight important relationships, entity patterns, evidence, and notable observations.",
+                )
+            ):
+                chunks.append(token)
+                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
+            log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
+            yield json.dumps(
+                {"type": "done", "context": context, "mode": "streaming"},
+                default=str,
+                separators=(",", ":"),
+            ) + "\n"
+        except NVIDIAClientError as exc:
+            yield json.dumps({"type": "error", "detail": str(exc)}, separators=(",", ":")) + "\n"
+        except Exception:
+            yield json.dumps({"type": "error", "detail": "NVIDIA analysis streaming request failed. Check backend logs."}, separators=(",", ":")) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
     try:
         result = nvidia_chat(
             _llm_messages(
