@@ -1,5 +1,6 @@
 """Case analysis workspace and evidence-grounded NVIDIA chat."""
 
+import hashlib
 import json
 import re
 
@@ -14,7 +15,14 @@ from ..security import get_current_user, log_audit
 from ..services.case_analysis import build_case_analysis, build_llm_context
 from ..services.graph_view import get_case_graph
 from ..services.investigation_agent import run_investigation_tools
-from ..services.nvidia_client import NVIDIAClientError, chat as nvidia_chat, is_configured, stream_chat
+from ..services.nvidia_client import (
+    NVIDIAClientError,
+    chat as nvidia_chat,
+    get_cached_stream,
+    is_configured,
+    set_cached_stream,
+    stream_chat,
+)
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -57,6 +65,35 @@ def _llm_messages(
             messages.append({"role": role, "content": str(content)[:3000]})
     messages.append({"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)})
     return messages
+
+
+def _chat_cache_key(context: dict, message: str, history: list[dict[str, str]] | None) -> str:
+    payload = {
+        "case_ids": context.get("case_ids", []),
+        "context": build_llm_context(context),
+        "question": re.sub(r"\s+", " ", message.strip().lower()),
+        "history": [
+            {"role": h.get("role"), "content": str(h.get("content", ""))[:1200]}
+            for h in (history or [])[-2:]
+        ],
+    }
+    raw = json.dumps(payload, default=str, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _cached_stream_response(answer: str, context: dict, tool: str | None = None):
+    def event_stream():
+        for i in range(0, len(answer), 120):
+            yield json.dumps({"type": "token", "content": answer[i:i + 120]}, ensure_ascii=False, separators=(",", ":")) + "\n"
+        yield json.dumps({
+            "type": "done", "context": context, "tool": tool,
+            "tool_status": "cached", "mode": "cache",
+        }, default=str, separators=(",", ":")) + "\n"
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 def _is_greeting(message: str) -> bool:
@@ -159,21 +196,37 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
     context = build_case_analysis(db, user, body.case_ids or None)
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
-    try:
-        result = nvidia_chat(
-            _llm_messages(
-                context,
-                "Generate an investigator-facing analysis of the selected case(s). "
-                "Highlight important relationships, entity patterns, evidence, and notable observations.",
-            )
-        )
-        content = result.choices[0].message.content or ""
-    except NVIDIAClientError as exc:
-        raise HTTPException(status_code=504, detail=str(exc)) from exc
-    except Exception:
-        raise HTTPException(status_code=502, detail="NVIDIA analysis request failed. Check backend logs.")
-    log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
-    return {"analysis": content, "context": context}
+
+    def event_stream():
+        try:
+            for token in stream_chat(
+                _llm_messages(
+                    context,
+                    "Generate a concise investigator-facing analysis of the selected case(s). "
+                    "Highlight important relationships, entity patterns, evidence, and notable observations.",
+                )
+            ):
+                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
+            log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
+            yield json.dumps(
+                {"type": "done", "context": context, "mode": "streaming"},
+                default=str,
+                separators=(",", ":"),
+            ) + "\n"
+        except NVIDIAClientError as exc:
+            yield json.dumps({"type": "error", "detail": str(exc)}, separators=(",", ":")) + "\n"
+        except Exception:
+            yield json.dumps({"type": "error", "detail": "NVIDIA analysis streaming request failed. Check backend logs."}, separators=(",", ":")) + "\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.get("/suspicious")
@@ -210,38 +263,75 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
             "or suspicious connection candidates."
         )
         log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
-        return {"answer": answer, "context": context}
+        return {"answer": answer, "context": context, "mode": "deterministic"}
 
     fast_answer = _fast_answer(context, body.message)
     if fast_answer:
         log_audit(db, user.id, "analysis_chat_fast_path", "case", ",".join(context["case_ids"]))
         return {"answer": fast_answer, "context": context, "mode": "deterministic"}
 
+    # Fast cache lookup is performed after the deterministic tool decision so
+    # cache entries remain tied to the actual tool path and selected-case context.
+    cache_key = _chat_cache_key(context, body.message, body.history)
+    cached_answer = get_cached_stream(cache_key)
+    if cached_answer is not None:
+        log_audit(db, user.id, "analysis_chat_cache_hit", "case", ",".join(context["case_ids"]))
+        return _cached_stream_response(cached_answer, context)
+
     tool_result = run_investigation_tools(db, user, context["case_ids"], body.message, context)
+    tool_observations = tool_result.get("observations")
     messages = _llm_messages(
         context,
-        "Answer the investigator's question. The deterministic investigation tool has already produced the observations below. Use those observations as the source of truth; do not invent additional graph values.",
+        "Answer the investigator's question using ONLY the supplied case data and deterministic tool observations. Be concise and evidence-grounded. Do not invent values.",
         body.message,
-        body.history,
+        body.history[-4:] if body.history else [],
     )
     messages.append({
         "role": "user",
-        "content": json.dumps({"tool_name": tool_result.get("tool"), "tool_status": tool_result.get("status"), "tool_observations": tool_result.get("observations"), "tool_note": tool_result.get("note")}, default=str, ensure_ascii=False),
+        "content": json.dumps(
+            {
+                "tool_name": tool_result.get("tool"),
+                "tool_status": tool_result.get("status"),
+                "tool_observations": tool_observations,
+                "tool_note": tool_result.get("note"),
+            },
+            default=str,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
     })
 
     def event_stream():
+        chunks: list[str] = []
         try:
             for token in stream_chat(messages):
-                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False) + "\n"
+                chunks.append(token)
+                yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
+            answer = "".join(chunks)
+            set_cached_stream(cache_key, answer)
             log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
-            yield json.dumps({"type": "done", "context": context, "tool": tool_result.get("tool"), "tool_status": tool_result.get("status")}, default=str) + "\n"
+            yield json.dumps(
+                {
+                    "type": "done",
+                    "context": context,
+                    "tool": tool_result.get("tool"),
+                    "tool_status": tool_result.get("status"),
+                    "mode": "streaming",
+                },
+                default=str,
+                separators=(",", ":"),
+            ) + "\n"
         except NVIDIAClientError as exc:
-            yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
+            yield json.dumps({"type": "error", "detail": str(exc)}, separators=(",", ":")) + "\n"
         except Exception:
-            yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}) + "\n"
+            yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}, separators=(",", ":")) + "\n"
 
     return StreamingResponse(
         event_stream(),
-        media_type="application/x-ndjson",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )

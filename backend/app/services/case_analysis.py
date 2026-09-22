@@ -47,10 +47,13 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
                 Relationship.person_a_id.in_(person_ids),
                 Relationship.person_b_id.in_(person_ids),
             )
+            .order_by(Relationship.score.desc().nullslast())
+            .limit(150)
             .all()
         )
 
     people = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+    people_by_id = {p.id: p for p in people}
 
     entity_rows = [
         {
@@ -72,8 +75,8 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
 
     relation_rows = []
     for r in sorted(relationships, key=lambda x: (x.score or 0), reverse=True)[:75]:
-        pa = db.get(Person, r.person_a_id)
-        pb = db.get(Person, r.person_b_id)
+        pa = people_by_id.get(r.person_a_id)
+        pb = people_by_id.get(r.person_b_id)
         relation_rows.append(
             {
                 "id": r.id,
@@ -126,11 +129,11 @@ def build_llm_context(
     context: dict,
     *,
     max_cases: int = 5,
-    max_people: int = 30,
-    max_entities: int = 30,
-    max_relationships: int = 25,
-    max_evidence: int = 25,
-    max_chars: int = 12000,
+    max_people: int = 24,
+    max_entities: int = 20,
+    max_relationships: int = 20,
+    max_evidence: int = 16,
+    max_chars: int = 9000,
 ) -> dict:
     """Create a small deterministic context for the hosted model."""
     compact = {

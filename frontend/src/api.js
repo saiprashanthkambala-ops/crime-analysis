@@ -30,7 +30,7 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
   const controller = new AbortController()
   const timeout = window.setTimeout(
     () => controller.abort(),
-    options.timeoutMs || 300000
+    options.timeoutMs || 90000
   )
 
   try {
@@ -110,6 +110,58 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
     }
 
     return { context, tool, mode }
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+
+export async function streamAnalysisGenerate(caseIds, onToken, options = {}) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs || 90000)
+  try {
+    const res = await fetch('/api/analysis/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ case_ids: caseIds }),
+      signal: controller.signal,
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      let detail = 'Analysis request failed (' + res.status + ')'
+      try {
+        const body = await res.json()
+        if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+      } catch (_) {}
+      throw new Error(detail)
+    }
+    if (!res.body) throw new Error('Streaming is not supported by this browser.')
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let context = null
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const event = JSON.parse(line)
+        if (event.type === 'token') onToken(event.content || '')
+        else if (event.type === 'done') context = event.context || null
+        else if (event.type === 'error') throw new Error(event.detail || 'Analysis streaming request failed.')
+      }
+    }
+    if (buffer.trim()) {
+      const event = JSON.parse(buffer)
+      if (event.type === 'token') onToken(event.content || '')
+      else if (event.type === 'done') context = event.context || null
+      else if (event.type === 'error') throw new Error(event.detail || 'Analysis streaming request failed.')
+    }
+    return { context, mode: 'streaming' }
   } finally {
     window.clearTimeout(timeout)
   }

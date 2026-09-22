@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, streamAnalysisChat } from '../api'
+import { api, streamAnalysisChat, streamAnalysisGenerate } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
 import NetworkGraph from '../components/NetworkGraph'
 import MarkdownMessage from '../components/MarkdownMessage'
@@ -185,42 +185,53 @@ export default function Analysis() {
   }
 
   const runAnalysis = async () => {
+    if (!selected.length) return
     setErr('')
     setGenerating(true)
+    setAnalysis('')
     startEstimatedProgress(setAnalysisProgress, analysisProgressTimer)
 
     try {
-      const data = await withTimeout('/analysis/generate', {
-        method: 'POST',
-        body: JSON.stringify({ case_ids: selected }),
-      })
-
-      setAnalysis(data.analysis || '')
-      setContext(data.context || null)
-      finishProgress(setAnalysisProgress, analysisProgressTimer)
-      void refreshSuspicious()
+      // Stream the AI summary independently. Graph metrics can start in parallel
+      // because they are SQL/NetworkX backed and no longer depend on Neo4j sync.
       const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
-      if (firstGraphCase) {
-        setGraphAnalysisCaseId(firstGraphCase)
-        setGraphAnalysisLoading(true)
-        void withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
-          .then((graphData) => setGraphAnalysis(graphData))
-          .catch((graphError) => {
-            if (graphError.name !== 'AbortError') {
-              setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + graphError.message)
-            }
-          })
-          .finally(() => setGraphAnalysisLoading(false))
+      if (firstGraphCase) setGraphAnalysisCaseId(firstGraphCase)
+      if (firstGraphCase) setGraphAnalysisLoading(true)
+
+      const graphPromise = firstGraphCase
+        ? withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
+        : Promise.resolve(null)
+
+      const analysisPromise = streamAnalysisGenerate(
+        selected,
+        (token) => setAnalysis((prev) => (prev || '') + token),
+        { timeoutMs: 90000 }
+      )
+
+      const [data, graphData] = await Promise.allSettled([analysisPromise, graphPromise])
+
+      if (data.status === 'fulfilled') {
+        if (data.value.context) setContext(data.value.context)
+        finishProgress(setAnalysisProgress, analysisProgressTimer)
+      } else {
+        throw data.reason
       }
-      // Generate the selected-case graph explicitly after AI analysis.
-      void generateGraph()
+
+      if (graphData.status === 'fulfilled' && graphData.value) {
+        setGraphAnalysis(graphData.value)
+      } else if (graphData.status === 'rejected' && graphData.reason?.name !== 'AbortError') {
+        setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + graphData.reason.message)
+      } else if (firstGraphCase) {
+        setGraphAnalysis(null)
+      }
     } catch (e) {
       setErr(
         e.name === 'AbortError'
-          ? 'Analysis timed out after 5 minutes. Check NVIDIA_API_KEY and the backend server log.'
+          ? 'Analysis timed out after 90 seconds. Check NVIDIA_API_KEY and the backend server log.'
           : e.message
       )
     } finally {
+      setGraphAnalysisLoading(false)
       finishProgress(setAnalysisProgress, analysisProgressTimer)
       setGenerating(false)
     }
@@ -290,8 +301,6 @@ export default function Analysis() {
 
       if (data.context) setContext(data.context)
       setAgentTools((prev) => ({ ...prev, [messageIndex + 1]: data.tool || data.mode || 'case_context' }))
-      void generateGraph()
-      void refreshSuspicious()
     } catch (e) {
       const detail = e.name === 'AbortError'
         ? 'Chat timed out after 5 minutes. Check NVIDIA_API_KEY, NVIDIA connectivity, and the backend log.'

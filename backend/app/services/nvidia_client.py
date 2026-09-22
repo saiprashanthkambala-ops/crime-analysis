@@ -15,6 +15,39 @@ def is_configured() -> bool:
     return bool(settings.NVIDIA_API_KEY.strip())
 
 
+# Small per-process cache for repeated exact streamed answers. The analysis
+# router builds the key from selected-case data, question, and recent history.
+_stream_cache: dict[str, tuple[float, str]] = {}
+_stream_cache_lock = Lock()
+_STREAM_CACHE_TTL_SECONDS = 300
+_STREAM_CACHE_MAX_ITEMS = 128
+
+
+def get_cached_stream(cache_key: str) -> str | None:
+    import time
+    now = time.monotonic()
+    with _stream_cache_lock:
+        item = _stream_cache.get(cache_key)
+        if not item:
+            return None
+        created, value = item
+        if now - created > _STREAM_CACHE_TTL_SECONDS:
+            _stream_cache.pop(cache_key, None)
+            return None
+        return value
+
+
+def set_cached_stream(cache_key: str, value: str) -> None:
+    import time
+    if not value:
+        return
+    with _stream_cache_lock:
+        _stream_cache[cache_key] = (time.monotonic(), value)
+        if len(_stream_cache) > _STREAM_CACHE_MAX_ITEMS:
+            oldest_key = min(_stream_cache, key=lambda key: _stream_cache[key][0])
+            _stream_cache.pop(oldest_key, None)
+
+
 _client_instance: OpenAI | None = None
 _client_lock = Lock()
 
