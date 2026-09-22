@@ -195,10 +195,11 @@ export default function Analysis() {
       // Stream the AI summary independently. Graph metrics can start in parallel
       // because they are SQL/NetworkX backed and no longer depend on Neo4j sync.
       const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
+      if (firstGraphCase) setGraphAnalysisCaseId(firstGraphCase)
+      if (firstGraphCase) setGraphAnalysisLoading(true)
+
       const graphPromise = firstGraphCase
-        ? (setGraphAnalysisCaseId(firstGraphCase),
-          setGraphAnalysisLoading(true),
-          withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase)))
+        ? withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
         : Promise.resolve(null)
 
       const analysisPromise = streamAnalysisGenerate(
