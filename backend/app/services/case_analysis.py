@@ -47,6 +47,8 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
                 Relationship.person_a_id.in_(person_ids),
                 Relationship.person_b_id.in_(person_ids),
             )
+            .order_by(Relationship.score.desc().nullslast())
+            .limit(150)
             .all()
         )
 
