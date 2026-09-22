@@ -15,6 +15,7 @@ import TimelinePage from './pages/TimelinePage'
 import GraphPage from './pages/GraphPage'
 import Analysis from './pages/Analysis'
 import AdminPage from './pages/AdminPage'
+import { AnalysisRuntimeProvider } from './analysisRuntime'
 
 function RequireAuth({ children }) {
   const { isAuthed, sessionChecked } = useAuth()
