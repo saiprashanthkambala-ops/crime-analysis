@@ -1,5 +1,6 @@
 """Case analysis workspace and evidence-grounded NVIDIA chat."""
 
+import hashlib
 import json
 import re
 
@@ -57,6 +58,35 @@ def _llm_messages(
             messages.append({"role": role, "content": str(content)[:3000]})
     messages.append({"role": "user", "content": json.dumps(payload, default=str, ensure_ascii=False)})
     return messages
+
+
+def _chat_cache_key(context: dict, message: str, history: list[dict[str, str]] | None) -> str:
+    payload = {
+        "case_ids": context.get("case_ids", []),
+        "context": build_llm_context(context),
+        "question": re.sub(r"\s+", " ", message.strip().lower()),
+        "history": [
+            {"role": h.get("role"), "content": str(h.get("content", ""))[:1200]}
+            for h in (history or [])[-2:]
+        ],
+    }
+    raw = json.dumps(payload, default=str, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _cached_stream_response(answer: str, context: dict, tool: str | None = None):
+    def event_stream():
+        for i in range(0, len(answer), 120):
+            yield json.dumps({"type": "token", "content": answer[i:i + 120]}, ensure_ascii=False, separators=(",", ":")) + "\n"
+        yield json.dumps({
+            "type": "done", "context": context, "tool": tool,
+            "tool_status": "cached", "mode": "cache",
+        }, default=str, separators=(",", ":")) + "\n"
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 def _is_greeting(message: str) -> bool:
@@ -218,6 +248,12 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
         log_audit(db, user.id, "analysis_chat_fast_path", "case", ",".join(context["case_ids"]))
         return {"answer": fast_answer, "context": context, "mode": "deterministic"}
 
+    cache_key = _chat_cache_key(context, body.message, body.history)
+    cached_answer = get_cached_stream(cache_key)
+    if cached_answer is not None:
+        log_audit(db, user.id, "analysis_chat_cache_hit", "case", ",".join(context["case_ids"]))
+        return _cached_stream_response(cached_answer, context)
+
     # Keep the tool layer deterministic, but avoid expensive graph/Neo4j work
     # for ordinary questions that do not require graph metrics.
     tool_result = run_investigation_tools(db, user, context["case_ids"], body.message, context)
@@ -244,9 +280,13 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
     })
 
     def event_stream():
+        chunks: list[str] = []
         try:
             for token in stream_chat(messages):
+                chunks.append(token)
                 yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
+            answer = "".join(chunks)
+            set_cached_stream(cache_key, answer)
             log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
             yield json.dumps(
                 {
