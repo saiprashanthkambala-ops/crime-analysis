@@ -15,7 +15,14 @@ from ..security import get_current_user, log_audit
 from ..services.case_analysis import build_case_analysis, build_llm_context
 from ..services.graph_view import get_case_graph
 from ..services.investigation_agent import run_investigation_tools
-from ..services.nvidia_client import NVIDIAClientError, chat as nvidia_chat, is_configured, stream_chat
+from ..services.nvidia_client import (
+    NVIDIAClientError,
+    chat as nvidia_chat,
+    get_cached_stream,
+    is_configured,
+    set_cached_stream,
+    stream_chat,
+)
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
