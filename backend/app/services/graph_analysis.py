@@ -270,43 +270,60 @@ def _combined(graph: nx.Graph, metrics: dict[str, dict[str, float]], communities
 
 
 def _sql_person_graph(db: Session, case_ids: list[str]) -> tuple[nx.Graph, dict[str, dict]]:
-    """Build the person graph from the selected cases without a Neo4j round-trip."""
-    from ..models import Person, Relationship
+    """Build a selected-case person graph from SQL relationship rows.
+
+    The Relationship table has no case_id, so selection is derived from
+    evidence/events linked to the requested cases. All expensive graph work
+    remains local and avoids a Neo4j sync/read during every metrics request.
+    """
+    from ..models import Evidence, Event, Person, Relationship
 
     clean_ids = [x for x in case_ids if x]
     if not clean_ids:
         return nx.Graph(), {}
 
-    # Relationship rows do not carry case_id in the current schema. Limit the
-    # graph to people authorized through the selected cases after loading only
-    # the bounded relationship set.
+    evidence = (
+        db.query(Evidence.person_a_id, Evidence.person_b_id)
+        .filter(Evidence.case_id.in_(clean_ids))
+        .all()
+    )
+    events = (
+        db.query(Event.person_a_id, Event.person_b_id)
+        .filter(Event.case_id.in_(clean_ids))
+        .all()
+    )
+    selected_person_ids = {
+        pid
+        for pair in [*evidence, *events]
+        for pid in pair
+        if pid
+    }
+    if not selected_person_ids:
+        return nx.Graph(), {}
+
     relationships = (
         db.query(Relationship)
         .filter(
+            Relationship.person_a_id.in_(selected_person_ids),
+            Relationship.person_b_id.in_(selected_person_ids),
             Relationship.person_a_id.isnot(None),
             Relationship.person_b_id.isnot(None),
             Relationship.person_a_id != Relationship.person_b_id,
         )
-        .order_by(Relationship.created_at.desc())
+        .order_by(Relationship.score.desc().nullslast())
         .limit(5000)
         .all()
     )
     if not relationships:
         return nx.Graph(), {}
 
-    # Determine the people actually attached to the selected cases from the
-    # smaller authoritative relationship/evidence context, then keep only
-    # relationship rows whose endpoints belong to that authorized set.
-    selected_person_ids = set()
-    rows = (
-        db.query(Relationship.person_a_id, Relationship.person_b_id)
-        .join(Person, Person.id == Relationship.person_a_id)
-        .filter(Relationship.id.in_([r.id for r in relationships]))
-        .all()
-    )
-    selected_person_ids.update(pid for pair in rows for pid in pair if pid)
-
-    people = db.query(Person).filter(Person.id.in_(selected_person_ids)).all() if selected_person_ids else []
+    related_ids = {
+        pid
+        for row in relationships
+        for pid in (row.person_a_id, row.person_b_id)
+        if pid
+    }
+    people = db.query(Person).filter(Person.id.in_(related_ids)).all()
     people_by_id = {p.id: p for p in people}
 
     graph = nx.Graph()
