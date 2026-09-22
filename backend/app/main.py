@@ -7,7 +7,7 @@ from sqlalchemy import text
 from fastapi.staticfiles import StaticFiles
 
 from .config import BASE_DIR, settings
-from .database import Base, engine, ensure_column_migrations
+from .database import Base, engine
 from .routers import auth, data, intelligence, admin, graph, analysis, graph_analysis
 from .seed import run_seed
 from .services.neo4j_service import close_driver, init_neo4j, neo4j_status
@@ -17,7 +17,6 @@ from .neo4j.schema import initialize_schema
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    ensure_column_migrations()
     if settings.AUTO_SEED:
         run_seed()
     try:
