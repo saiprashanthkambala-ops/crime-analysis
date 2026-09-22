@@ -42,6 +42,7 @@ def _llm_messages(
     task: str,
     question: str | None = None,
     history: list[dict[str, str]] | None = None,
+    tool_result: dict | None = None,
 ):
     system = (
         "You are the Crime Analysis investigation assistant. "
@@ -57,6 +58,13 @@ def _llm_messages(
     }
     if question:
         payload["investigator_question"] = question
+    if tool_result:
+        payload["deterministic_tool_observations"] = {
+            "tool_name": tool_result.get("tool"),
+            "status": tool_result.get("status"),
+            "observations": tool_result.get("observations"),
+            "note": tool_result.get("note"),
+        }
     messages = [{"role": "system", "content": system}]
     for item in (history or [])[-6:]:
         role = item.get("role")
@@ -285,21 +293,8 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
         "Answer the investigator's question using ONLY the supplied case data and deterministic tool observations. Be concise and evidence-grounded. Do not invent values.",
         body.message,
         body.history[-4:] if body.history else [],
+        tool_result,
     )
-    messages.append({
-        "role": "user",
-        "content": json.dumps(
-            {
-                "tool_name": tool_result.get("tool"),
-                "tool_status": tool_result.get("status"),
-                "tool_observations": tool_observations,
-                "tool_note": tool_result.get("note"),
-            },
-            default=str,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ),
-    })
 
     def event_stream():
         chunks: list[str] = []
