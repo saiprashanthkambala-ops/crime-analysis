@@ -175,27 +175,41 @@ def _components(graph: nx.Graph) -> list[dict[str, Any]]:
 
 
 def _similarity(graph: nx.Graph) -> list[dict[str, Any]]:
+    """Compute all positive Jaccard similarities without an O(n^2) pair scan.
+
+    A pair can only have non-zero Jaccard similarity when the two nodes share
+    at least one neighbor, so generate only those candidate pairs first.
+    """
+    neighbor_sets = {n: set(graph.neighbors(n)) for n in graph.nodes}
+    candidate_pairs: set[tuple[str, str]] = set()
+
+    for neighbors in neighbor_sets.values():
+        members = sorted(neighbors)
+        # For a hub node, the number of candidate pairs can still be large;
+        # cap it to keep interactive analysis predictable.
+        if len(members) > 200:
+            continue
+        for i, a in enumerate(members):
+            for b in members[i + 1:]:
+                candidate_pairs.add((a, b))
+
     rows = []
-    nodes = list(graph.nodes())
-    neighbor_sets = {n: set(graph.neighbors(n)) for n in nodes}
-    for i, a in enumerate(nodes):
-        for b in nodes[i + 1:]:
-            union = neighbor_sets[a] | neighbor_sets[b]
-            if not union:
-                continue
-            value = len(neighbor_sets[a] & neighbor_sets[b]) / len(union)
-            if value <= 0:
-                continue
-            rows.append({
-                "entity_a": a,
-                "name_a": graph.nodes[a].get("name", a),
-                "entity_b": b,
-                "name_b": graph.nodes[b].get("name", b),
-                "similarity": value,
-            })
+    for a, b in candidate_pairs:
+        union = neighbor_sets[a] | neighbor_sets[b]
+        if not union:
+            continue
+        value = len(neighbor_sets[a] & neighbor_sets[b]) / len(union)
+        if value <= 0:
+            continue
+        rows.append({
+            "entity_a": a,
+            "name_a": graph.nodes[a].get("name", a),
+            "entity_b": b,
+            "name_b": graph.nodes[b].get("name", b),
+            "similarity": value,
+        })
     rows.sort(key=lambda x: (-x["similarity"], x["name_a"], x["name_b"]))
     return rows[:50]
-
 
 def _temporal_summary(db: Session, case_ids: list[str]) -> dict[str, Any]:
     if not case_ids:
