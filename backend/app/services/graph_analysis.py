@@ -474,7 +474,8 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     for row in communities:
         community_sizes[row["communityId"]] += 1
 
-    result = {\n
+    result = {
+
         "case_ids": clean_ids,
         "engine": "networkx-local",
         "graph_source": graph_source,
