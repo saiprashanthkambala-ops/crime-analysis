@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import defaultdict, deque
+from threading import Lock
 from typing import Any
 
 import networkx as nx
@@ -27,6 +29,35 @@ REL_TYPES = [
 
 class GraphAnalysisUnavailable(RuntimeError):
     """Graph analysis data cannot be loaded."""
+
+
+_ANALYSIS_CACHE_TTL_SECONDS = 20.0
+_ANALYSIS_CACHE_MAX_ITEMS = 64
+_analysis_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+_analysis_cache_lock = Lock()
+
+
+def _get_cached_analysis(case_ids: list[str]) -> dict[str, Any] | None:
+    key = tuple(sorted(set(case_ids)))
+    now = time.monotonic()
+    with _analysis_cache_lock:
+        item = _analysis_cache.get(key)
+        if item is None:
+            return None
+        created_at, value = item
+        if now - created_at > _ANALYSIS_CACHE_TTL_SECONDS:
+            _analysis_cache.pop(key, None)
+            return None
+        return value
+
+
+def _set_cached_analysis(case_ids: list[str], value: dict[str, Any]) -> None:
+    key = tuple(sorted(set(case_ids)))
+    with _analysis_cache_lock:
+        _analysis_cache[key] = (time.monotonic(), value)
+        if len(_analysis_cache) > _ANALYSIS_CACHE_MAX_ITEMS:
+            oldest_key = min(_analysis_cache, key=lambda item: _analysis_cache[item][0])
+            _analysis_cache.pop(oldest_key, None)
 
 
 def _fetch_person_graph(case_ids: list[str]) -> dict[str, Any]:
@@ -242,7 +273,26 @@ def _temporal_summary(db: Session, case_ids: list[str]) -> dict[str, Any]:
 
 def _base_metrics(graph: nx.Graph) -> dict[str, dict[str, float]]:
     degree = {k: float(v) for k, v in nx.degree_centrality(graph).items()}
-    betweenness = {k: float(v) for k, v in nx.betweenness_centrality(graph, normalized=True, weight=None).items()}
+    node_count = graph.number_of_nodes()
+    if node_count <= 80:
+        betweenness = {
+            k: float(v)
+            for k, v in nx.betweenness_centrality(graph, normalized=True, weight=None).items()
+        }
+    else:
+        # Exact betweenness is expensive on larger investigation graphs. Use a
+        # deterministic bounded sample so interactive analysis stays responsive.
+        sample_size = min(64, max(16, int(math.sqrt(node_count) * 4)))
+        betweenness = {
+            k: float(v)
+            for k, v in nx.betweenness_centrality(
+                graph,
+                k=sample_size,
+                normalized=True,
+                weight=None,
+                seed=42,
+            ).items()
+        }
     closeness = {k: float(v) for k, v in nx.closeness_centrality(graph).items()}
     pagerank = _pagerank_weighted(graph)
     return {
@@ -378,6 +428,10 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     for cid in clean_ids:
         ensure_case_access(db, user, cid)
 
+    cached = _get_cached_analysis(clean_ids)
+    if cached is not None:
+        return cached
+
     # SQL is the authoritative relationship store. Calculate metrics directly
     # from it. Neo4j synchronization is a separate explicit operation and must
     # not block the interactive analysis request.
@@ -420,7 +474,8 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     for row in communities:
         community_sizes[row["communityId"]] += 1
 
-    return {
+    result = {
+
         "case_ids": clean_ids,
         "engine": "networkx-local",
         "graph_source": graph_source,
@@ -441,9 +496,11 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
         "community_sizes": dict(community_sizes),
         "temporal": _temporal_summary(db, clean_ids),
         "graph_sync": {"attempted": len(clean_ids), "errors": sync_errors},
-        "betweenness_mode": "exact",
-        "betweenness_sampling_size": None,
+        "betweenness_mode": "sampled" if graph.number_of_nodes() > 80 else "exact",
+        "betweenness_sampling_size": min(64, max(16, int(math.sqrt(graph.number_of_nodes()) * 4))) if graph.number_of_nodes() > 80 else None,
     }
+    _set_cached_analysis(clean_ids, result)
+    return result
 
 def analyze_case(db: Session, user, case_id: str) -> dict[str, Any]:
     return analyze_cases(db, user, [case_id])
