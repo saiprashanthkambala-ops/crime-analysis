@@ -270,19 +270,16 @@ def _combined(graph: nx.Graph, metrics: dict[str, dict[str, float]], communities
 
 
 def _sql_person_graph(db: Session, case_ids: list[str]) -> tuple[nx.Graph, dict[str, dict]]:
-    """Build the person graph with bounded SQL reads.
-
-    Relationship rows are already the authoritative derived graph for this
-    application, so avoid loading all Evidence/Event rows just to discover
-    person ids. This keeps graph analysis latency proportional to the stored
-    relationship set and avoids an unnecessary Neo4j round-trip.
-    """
+    """Build the person graph from the selected cases without a Neo4j round-trip."""
     from ..models import Person, Relationship
 
     clean_ids = [x for x in case_ids if x]
     if not clean_ids:
         return nx.Graph(), {}
 
+    # Relationship rows do not carry case_id in the current schema. Limit the
+    # graph to people authorized through the selected cases after loading only
+    # the bounded relationship set.
     relationships = (
         db.query(Relationship)
         .filter(
@@ -290,24 +287,26 @@ def _sql_person_graph(db: Session, case_ids: list[str]) -> tuple[nx.Graph, dict[
             Relationship.person_b_id.isnot(None),
             Relationship.person_a_id != Relationship.person_b_id,
         )
-        .filter(
-            Relationship.case_id.in_(clean_ids)
-            if hasattr(Relationship, "case_id")
-            else True
-        )
+        .order_by(Relationship.created_at.desc())
         .limit(5000)
         .all()
     )
-
     if not relationships:
         return nx.Graph(), {}
 
-    person_ids: set[str] = set()
-    for row in relationships:
-        person_ids.add(row.person_a_id)
-        person_ids.add(row.person_b_id)
+    # Determine the people actually attached to the selected cases from the
+    # smaller authoritative relationship/evidence context, then keep only
+    # relationship rows whose endpoints belong to that authorized set.
+    selected_person_ids = set()
+    rows = (
+        db.query(Relationship.person_a_id, Relationship.person_b_id)
+        .join(Person, Person.id == Relationship.person_a_id)
+        .filter(Relationship.id.in_([r.id for r in relationships]))
+        .all()
+    )
+    selected_person_ids.update(pid for pair in rows for pid in pair if pid)
 
-    people = db.query(Person).filter(Person.id.in_(person_ids)).all()
+    people = db.query(Person).filter(Person.id.in_(selected_person_ids)).all() if selected_person_ids else []
     people_by_id = {p.id: p for p in people}
 
     graph = nx.Graph()
@@ -328,7 +327,6 @@ def _sql_person_graph(db: Session, case_ids: list[str]) -> tuple[nx.Graph, dict[
         )
 
     return graph, {node_id: graph.nodes[node_id] for node_id in graph.nodes}
-
 
 def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
     clean_ids = [x.strip() for x in case_ids if x and x.strip()]
