@@ -273,7 +273,26 @@ def _temporal_summary(db: Session, case_ids: list[str]) -> dict[str, Any]:
 
 def _base_metrics(graph: nx.Graph) -> dict[str, dict[str, float]]:
     degree = {k: float(v) for k, v in nx.degree_centrality(graph).items()}
-    betweenness = {k: float(v) for k, v in nx.betweenness_centrality(graph, normalized=True, weight=None).items()}
+    node_count = graph.number_of_nodes()
+    if node_count <= 80:
+        betweenness = {
+            k: float(v)
+            for k, v in nx.betweenness_centrality(graph, normalized=True, weight=None).items()
+        }
+    else:
+        # Exact betweenness is expensive on larger investigation graphs. Use a
+        # deterministic bounded sample so interactive analysis stays responsive.
+        sample_size = min(64, max(16, int(math.sqrt(node_count) * 4)))
+        betweenness = {
+            k: float(v)
+            for k, v in nx.betweenness_centrality(
+                graph,
+                k=sample_size,
+                normalized=True,
+                weight=None,
+                seed=42,
+            ).items()
+        }
     closeness = {k: float(v) for k, v in nx.closeness_centrality(graph).items()}
     pagerank = _pagerank_weighted(graph)
     return {
@@ -476,8 +495,8 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
         "community_sizes": dict(community_sizes),
         "temporal": _temporal_summary(db, clean_ids),
         "graph_sync": {"attempted": len(clean_ids), "errors": sync_errors},
-        "betweenness_mode": "exact",
-        "betweenness_sampling_size": None,
+        "betweenness_mode": "sampled" if graph.number_of_nodes() > 80 else "exact",
+        "betweenness_sampling_size": min(64, max(16, int(math.sqrt(graph.number_of_nodes()) * 4))) if graph.number_of_nodes() > 80 else None,
     }
     _set_cached_analysis(clean_ids, result)
     return result
