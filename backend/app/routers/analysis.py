@@ -198,10 +198,7 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
 
     def event_stream():
-        chunks: list[str] = []
         try:
-            # Disable hidden reasoning for the interactive summary and stream the
-            # visible answer immediately to reduce perceived latency.
             for token in stream_chat(
                 _llm_messages(
                     context,
@@ -209,7 +206,6 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
                     "Highlight important relationships, entity patterns, evidence, and notable observations.",
                 )
             ):
-                chunks.append(token)
                 yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
             log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
             yield json.dumps(
@@ -231,23 +227,6 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
             "Connection": "keep-alive",
         },
     )
-
-    try:
-        result = nvidia_chat(
-            _llm_messages(
-                context,
-                "Generate a concise investigator-facing analysis of the selected case(s). "
-                "Highlight important relationships, entity patterns, evidence, and notable observations.",
-            ),
-            enable_thinking=False,
-        )
-        content = result.choices[0].message.content or ""
-    except NVIDIAClientError as exc:
-        raise HTTPException(status_code=504, detail=str(exc)) from exc
-    except Exception:
-        raise HTTPException(status_code=502, detail="NVIDIA analysis request failed. Check backend logs.")
-    log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
-    return {"analysis": content, "context": context}
 
 
 @router.get("/suspicious")
