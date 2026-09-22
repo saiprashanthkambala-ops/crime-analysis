@@ -287,7 +287,6 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
         return _cached_stream_response(cached_answer, context)
 
     tool_result = run_investigation_tools(db, user, context["case_ids"], body.message, context)
-    tool_observations = tool_result.get("observations")
     messages = _llm_messages(
         context,
         "Answer the investigator's question using ONLY the supplied case data and deterministic tool observations. Be concise and evidence-grounded. Do not invent values.",
