@@ -290,6 +290,11 @@ def _sql_person_graph(db: Session, case_ids: list[str]) -> tuple[nx.Graph, dict[
             Relationship.person_b_id.isnot(None),
             Relationship.person_a_id != Relationship.person_b_id,
         )
+        .filter(
+            Relationship.case_id.in_(clean_ids)
+            if hasattr(Relationship, "case_id")
+            else True
+        )
         .limit(5000)
         .all()
     )
