@@ -51,6 +51,7 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
         )
 
     people = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+    people_by_id = {p.id: p for p in people}
 
     entity_rows = [
         {
@@ -72,8 +73,8 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
 
     relation_rows = []
     for r in sorted(relationships, key=lambda x: (x.score or 0), reverse=True)[:75]:
-        pa = db.get(Person, r.person_a_id)
-        pb = db.get(Person, r.person_b_id)
+        pa = people_by_id.get(r.person_a_id)
+        pb = people_by_id.get(r.person_b_id)
         relation_rows.append(
             {
                 "id": r.id,
