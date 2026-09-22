@@ -141,6 +141,141 @@ def get_case_graph_endpoint(
     return get_case_graph(db, user, [case_id])
 
 
+@router.get("/node-details")
+def graph_node_details(
+    node_id: str,
+    node_type: str = "",
+    case_id: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return authorized investigator-readable graph-node details with provenance."""
+    from ..models import Case, Document, Entity, Event, Evidence, Person, person_entities
+    from ..security import ensure_case_access
+
+    if case_id:
+        ensure_case_access(db, user, case_id)
+
+    clean_type = (node_type or "").strip().lower()
+    clean_id = (node_id or "").strip()
+    if not clean_id:
+        raise HTTPException(status_code=400, detail="Graph node id is required.")
+
+    def file_dict(doc):
+        preview = (doc.source_text or "").strip()
+        if len(preview) > 1800:
+            preview = preview[:1800].rstrip() + "…"
+        return {
+            "id": doc.id,
+            "filename": doc.filename,
+            "file_type": doc.file_type,
+            "status": doc.status,
+            "records_processed": doc.records_processed,
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
+            "source_preview": preview or None,
+        }
+
+    if clean_type in {"phone", "vehicle", "account", "location"}:
+        prefix_map = {
+            "phone": "PHONE",
+            "vehicle": "VEHICLE",
+            "account": "BANK_ACCOUNT",
+            "location": "LOCATION",
+        }
+        entity_type = prefix_map[clean_type]
+        normalized = clean_id.split(":", 1)[1] if ":" in clean_id else clean_id
+        query = db.query(Entity).filter(
+            Entity.entity_type == entity_type,
+            Entity.normalized_value == normalized,
+        )
+        if case_id:
+            query = query.filter(Entity.case_id == case_id)
+        entities = query.order_by(Entity.id.asc()).all()
+        if not entities:
+            raise HTTPException(status_code=404, detail="Graph entity details not found.")
+
+        entity_ids = [e.id for e in entities]
+        source_ids = {e.source_document_id for e in entities if e.source_document_id}
+        source_files = db.query(Document).filter(Document.id.in_(source_ids)).all() if source_ids else []
+        source_by_id = {d.id: d for d in source_files}
+        person_links = db.query(
+            person_entities.c.person_id, person_entities.c.entity_id
+        ).filter(person_entities.c.entity_id.in_(entity_ids)).all()
+        person_ids = {row[0] for row in person_links if row[0]}
+        people = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+        primary = entities[0]
+        case_obj = db.get(Case, primary.case_id)
+
+        return {
+            "node_id": clean_id,
+            "node_type": clean_type,
+            "display_name": primary.original_value or primary.normalized_value,
+            "entity_type": primary.entity_type,
+            "value": primary.original_value or primary.normalized_value,
+            "normalized_value": primary.normalized_value,
+            "confidence": primary.confidence,
+            "observed_at": " ".join(x for x in (primary.observed_date, primary.observed_time) if x) or None,
+            "case": {"id": case_obj.id, "name": case_obj.name, "status": case_obj.status} if case_obj else None,
+            "source_files": [file_dict(source_by_id[sid]) for sid in source_ids if sid in source_by_id],
+            "related_people": [{"id": p.id, "name": p.name} for p in people],
+        }
+
+    if clean_type == "person":
+        person = db.get(Person, clean_id)
+        if not person:
+            raise HTTPException(status_code=404, detail="Graph person details not found.")
+        linked = (
+            db.query(Entity)
+            .join(person_entities, person_entities.c.entity_id == Entity.id)
+            .filter(person_entities.c.person_id == person.id)
+            .all()
+        )
+        if case_id:
+            linked = [e for e in linked if e.case_id == case_id]
+        source_ids = {e.source_document_id for e in linked if e.source_document_id}
+        source_files = db.query(Document).filter(Document.id.in_(source_ids)).all() if source_ids else []
+        case_obj = db.get(Case, case_id) if case_id else (db.get(Case, linked[0].case_id) if linked else None)
+        return {
+            "node_id": clean_id,
+            "node_type": clean_type,
+            "display_name": person.name or person.id,
+            "entity_type": "PERSON",
+            "value": person.name or person.id,
+            "normalized_value": person.id,
+            "case": {"id": case_obj.id, "name": case_obj.name, "status": case_obj.status} if case_obj else None,
+            "source_files": [file_dict(d) for d in source_files],
+            "related_people": [],
+        }
+
+    if clean_type in {"document", "event", "evidence", "case"}:
+        if clean_type == "case":
+            ensure_case_access(db, user, clean_id)
+            obj = db.get(Case, clean_id)
+        elif clean_type == "document":
+            obj = db.get(Document, clean_id)
+        elif clean_type == "event":
+            obj = db.get(Event, int(clean_id)) if clean_id.isdigit() else None
+        else:
+            obj = db.get(Evidence, clean_id)
+        if not obj:
+            raise HTTPException(status_code=404, detail="Graph node details not found.")
+        obj_case_id = getattr(obj, "case_id", None)
+        if obj_case_id:
+            ensure_case_access(db, user, obj_case_id)
+        case_obj = db.get(Case, obj_case_id) if obj_case_id else None
+        return {
+            "node_id": clean_id,
+            "node_type": clean_type,
+            "display_name": getattr(obj, "filename", None) or getattr(obj, "event_type", None) or getattr(obj, "type", None) or clean_id,
+            "entity_type": clean_type.upper(),
+            "value": getattr(obj, "description", None) or getattr(obj, "source_reference", None) or getattr(obj, "filename", None) or clean_id,
+            "case": {"id": case_obj.id, "name": case_obj.name, "status": case_obj.status} if case_obj else None,
+            "source_files": [],
+            "related_people": [],
+        }
+
+    raise HTTPException(status_code=400, detail="Unsupported graph node type.")
+
 @router.get("/person/{person_id}/neighbors")
 def person_neighbors(
     person_id: str,
