@@ -510,3 +510,59 @@ def _multi_hop(case_id: str, person_id: str, max_hops: int) -> list[dict[str, An
     hops = max(1, min(max_hops, 5))
     query = f"""
     MATCH (source:Person {{id: $person_id}})
+    WHERE source.case_id = $case_id
+    MATCH p=(source)-[*1..{hops}]-(target:Person)
+    WHERE target.case_id = $case_id AND target.id <> source.id
+    WITH target, min(length(p)) AS hops
+    RETURN target.id AS entity_id, target.name AS name, hops
+    ORDER BY hops ASC, name ASC
+    LIMIT 100
+    """
+    try:
+        return run_read_query(query, {"case_id": case_id, "person_id": person_id})
+    except Neo4jConnectionError as exc:
+        raise GraphAnalysisUnavailable("Neo4j is unavailable.") from exc
+
+
+def multi_hop_for_person(db: Session, user, case_id: str, person_id: str, max_hops: int = 3) -> dict[str, Any]:
+    ensure_case_access(db, user, case_id)
+    return {
+        "case_id": case_id,
+        "person_id": person_id,
+        "max_hops": max(1, min(max_hops, 5)),
+        "neighbors": _multi_hop(case_id, person_id, max_hops),
+    }
+
+
+def _shortest_path(case_id: str, source_person_id: str, target_person_id: str) -> dict[str, Any]:
+    query = """
+    MATCH (s:Person {id: $source_id}), (t:Person {id: $target_id})
+    WHERE s.case_id = $case_id AND t.case_id = $case_id
+    MATCH p=shortestPath((s)-[*..20]-(t))
+    RETURN [n IN nodes(p) | {id: n.id, name: coalesce(n.name, n.id)}] AS nodes,
+           length(p) AS hops
+    """
+    try:
+        rows = run_read_query(
+            query,
+            {
+                "source_id": source_person_id,
+                "target_id": target_person_id,
+                "case_id": case_id,
+            },
+        )
+    except Neo4jConnectionError as exc:
+        raise GraphAnalysisUnavailable("Neo4j is unavailable.") from exc
+    if not rows:
+        return {"hops": None, "nodes": []}
+    return rows[0]
+
+
+def shortest_path_for_people(db: Session, user, case_id: str, source_person_id: str, target_person_id: str) -> dict[str, Any]:
+    ensure_case_access(db, user, case_id)
+    return {
+        "case_id": case_id,
+        "source_person_id": source_person_id,
+        "target_person_id": target_person_id,
+        **_shortest_path(case_id, source_person_id, target_person_id),
+    }
