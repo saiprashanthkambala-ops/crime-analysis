@@ -31,7 +31,7 @@ class GraphAnalysisUnavailable(RuntimeError):
     """Graph analysis data cannot be loaded."""
 
 
-_ANALYSIS_CACHE_TTL_SECONDS = 20.0
+_ANALYSIS_CACHE_TTL_SECONDS = 300.0
 _ANALYSIS_CACHE_MAX_ITEMS = 64
 _analysis_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _analysis_cache_lock = Lock()
@@ -181,16 +181,22 @@ def _pagerank_weighted(graph: nx.Graph, alpha: float = 0.85, max_iter: int = 100
 def _communities(graph: nx.Graph) -> list[dict[str, Any]]:
     if graph.number_of_nodes() == 0:
         return []
-    communities = nx.community.louvain_communities(graph, weight="score", seed=42)
+    if graph.number_of_nodes() <= 250:
+        communities = nx.community.louvain_communities(
+            graph,
+            weight="score",
+            threshold=1e-4,
+            max_level=3,
+            seed=42,
+        )
+    else:
+        # Label propagation keeps very large interactive graphs bounded.
+        communities = nx.community.asyn_lpa_communities(
+            graph,
+            weight="score",
+            seed=42,
+        )
     rows = []
-    for idx, members in enumerate(sorted(communities, key=lambda s: min(s))):
-        for node_id in sorted(members):
-            rows.append({
-                "entity_id": node_id,
-                "name": graph.nodes[node_id].get("name", node_id),
-                "communityId": idx,
-            })
-    return rows
 
 
 def _components(graph: nx.Graph) -> list[dict[str, Any]]:
@@ -223,6 +229,18 @@ def _similarity(graph: nx.Graph) -> list[dict[str, Any]]:
         for i, a in enumerate(members):
             for b in members[i + 1:]:
                 candidate_pairs.add((a, b))
+
+    # Bound pair evaluation so dense hubs cannot turn interactive analysis
+    # into an unbounded O(n^2) workload.
+    if len(candidate_pairs) > 12000:
+        candidate_pairs = set(sorted(
+            candidate_pairs,
+            key=lambda pair: (
+                -(graph.degree(pair[0]) + graph.degree(pair[1])),
+                pair[0],
+                pair[1],
+            ),
+        )[:12000])
 
     rows = []
     for a, b in candidate_pairs:
@@ -271,18 +289,56 @@ def _temporal_summary(db: Session, case_ids: list[str]) -> dict[str, Any]:
     }
 
 
+def _approximate_closeness(graph: nx.Graph, max_landmarks: int = 32) -> dict[str, float]:
+    """Estimate closeness from a bounded set of deterministic landmarks."""
+    values: dict[str, float] = {}
+    for component in nx.connected_components(graph):
+        nodes = list(component)
+        if len(nodes) <= 120:
+            values.update(nx.closeness_centrality(graph.subgraph(nodes)))
+            continue
+
+        landmarks = sorted(
+            nodes,
+            key=lambda node: (-graph.degree(node), str(node)),
+        )[: min(max_landmarks, len(nodes))]
+
+        distance_sums = dict.fromkeys(nodes, 0.0)
+        for source in landmarks:
+            distances = nx.single_source_shortest_path_length(graph, source)
+            for node in nodes:
+                distance_sums[node] += float(distances.get(node, len(nodes)))
+
+        for node in nodes:
+            sample_count = len(landmarks) - (1 if node in landmarks else 0)
+            total_distance = distance_sums[node]
+            values[node] = (
+                float(sample_count / total_distance)
+                if sample_count > 0 and total_distance > 0
+                else 0.0
+            )
+    return values
+
+
 def _base_metrics(graph: nx.Graph) -> dict[str, dict[str, float]]:
     degree = {k: float(v) for k, v in nx.degree_centrality(graph).items()}
     node_count = graph.number_of_nodes()
-    if node_count <= 80:
+
+    if node_count <= 40:
         betweenness = {
             k: float(v)
-            for k, v in nx.betweenness_centrality(graph, normalized=True, weight=None).items()
+            for k, v in nx.betweenness_centrality(
+                graph, normalized=True, weight=None
+            ).items()
+        }
+        closeness = {
+            k: float(v)
+            for k, v in nx.closeness_centrality(graph).items()
         }
     else:
-        # Exact betweenness is expensive on larger investigation graphs. Use a
-        # deterministic bounded sample so interactive analysis stays responsive.
-        sample_size = min(64, max(16, int(math.sqrt(node_count) * 4)))
+        # NetworkX documents k-source betweenness as the bounded approximation
+        # for large graphs. Keep the source sample deterministic and small.
+        sample_size = min(32, max(8, int(math.sqrt(node_count) * 2)))
         betweenness = {
             k: float(v)
             for k, v in nx.betweenness_centrality(
@@ -293,8 +349,9 @@ def _base_metrics(graph: nx.Graph) -> dict[str, dict[str, float]]:
                 seed=42,
             ).items()
         }
-    closeness = {k: float(v) for k, v in nx.closeness_centrality(graph).items()}
-    pagerank = _pagerank_weighted(graph)
+        closeness = _approximate_closeness(graph)
+
+    pagerank = _pagerank_weighted(graph, max_iter=50, tol=1e-5)
     return {
         "degree": degree,
         "betweenness": betweenness,
@@ -496,8 +553,8 @@ def analyze_cases(db: Session, user, case_ids: list[str]) -> dict[str, Any]:
         "community_sizes": dict(community_sizes),
         "temporal": _temporal_summary(db, clean_ids),
         "graph_sync": {"attempted": len(clean_ids), "errors": sync_errors},
-        "betweenness_mode": "sampled" if graph.number_of_nodes() > 80 else "exact",
-        "betweenness_sampling_size": min(64, max(16, int(math.sqrt(graph.number_of_nodes()) * 4))) if graph.number_of_nodes() > 80 else None,
+        "betweenness_mode": "sampled" if graph.number_of_nodes() > 40 else "exact",
+        "betweenness_sampling_size": min(32, max(8, int(math.sqrt(graph.number_of_nodes()) * 2))) if graph.number_of_nodes() > 40 else None,
     }
     _set_cached_analysis(clean_ids, result)
     return result
