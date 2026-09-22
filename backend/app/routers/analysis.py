@@ -163,9 +163,10 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
         result = nvidia_chat(
             _llm_messages(
                 context,
-                "Generate an investigator-facing analysis of the selected case(s). "
+                "Generate a concise investigator-facing analysis of the selected case(s). "
                 "Highlight important relationships, entity patterns, evidence, and notable observations.",
-            )
+            ),
+            enable_thinking=False,
         )
         content = result.choices[0].message.content or ""
     except NVIDIAClientError as exc:
