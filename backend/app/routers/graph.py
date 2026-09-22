@@ -181,3 +181,88 @@ def person_neighbors(
     if not rows:
         raise HTTPException(status_code=404, detail="Person is not present in Neo4j")
     return rows[0]
+
+
+@router.get("/entity")
+def entity_details(
+    node_id: str,
+    case_id: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Return case-scoped entity details and provenance for graph-node inspection."""
+    from ..models import Case, Document, Entity, Event, Evidence, Person, person_entities
+    from ..security import ensure_case_access
+
+    requested_case_ids = [case_id] if case_id else []
+    if case_id:
+        ensure_case_access(db, user, case_id)
+
+    entity = None
+    raw_id = node_id.split(':', 1)[1] if ':' in node_id else node_id
+    try:
+        if raw_id.isdigit():
+            entity = db.get(Entity, int(raw_id))
+    except (TypeError, ValueError):
+        entity = None
+
+    if entity is None:
+        candidates = db.query(Entity)
+        if requested_case_ids:
+            candidates = candidates.filter(Entity.case_id.in_(requested_case_ids))
+        prefix = node_id.split(':', 1)[0].upper() if ':' in node_id else ''
+        type_map = {"PHONE": "PHONE", "VEHICLE": "VEHICLE", "ACCOUNT": "BANK_ACCOUNT", "LOCATION": "LOCATION"}
+        entity_type = type_map.get(prefix)
+        if entity_type:
+            candidates = candidates.filter(Entity.entity_type == entity_type)
+        entity = candidates.filter(
+            (Entity.normalized_value == raw_id) | (Entity.original_value == raw_id)
+        ).order_by(Entity.id.asc()).first()
+
+    if entity is None:
+        raise HTTPException(status_code=404, detail="Entity details not found for this graph node.")
+
+    ensure_case_access(db, user, entity.case_id)
+    case = db.get(Case, entity.case_id) if entity.case_id else None
+    document = db.get(Document, entity.source_document_id) if entity.source_document_id else None
+
+    linked_people = (
+        db.query(Person)
+        .join(person_entities, person_entities.c.person_id == Person.id)
+        .filter(person_entities.c.entity_id == entity.id)
+        .all()
+    )
+
+    return {
+        "entity": {
+            "id": entity.id,
+            "entity_type": entity.entity_type,
+            "original_value": entity.original_value,
+            "normalized_value": entity.normalized_value,
+            "confidence": entity.confidence,
+            "extraction_method": entity.extraction_method,
+            "source_reference": entity.source_reference,
+            "source_document_id": entity.source_document_id,
+            "observed_date": entity.observed_date,
+            "observed_time": entity.observed_time,
+            "date_precision": entity.date_precision,
+            "meta": entity.meta or {},
+        },
+        "case": {
+            "id": case.id,
+            "name": case.name,
+            "description": case.description or "",
+            "status": case.status,
+        } if case else None,
+        "document": {
+            "id": document.id,
+            "filename": document.filename,
+            "file_type": document.file_type,
+            "status": document.status,
+            "created_at": document.created_at.isoformat() if document.created_at else None,
+            "processed_at": document.processed_at.isoformat() if document.processed_at else None,
+            "file_size": document.file_size or 0,
+            "source_available": bool(document.source_text or document.filename),
+        } if document else None,
+        "people": [{"id": p.id, "name": p.name} for p in linked_people],
+    }
