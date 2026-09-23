@@ -325,3 +325,6 @@ export default function Dashboard() {
     </div>
   )
 }
+
+
+/* Dashboard uses a dedicated hero visual, so only its data panels use the shared page header treatment. */
