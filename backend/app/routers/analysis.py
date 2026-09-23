@@ -75,6 +75,23 @@ def _llm_messages(
     return messages
 
 
+def _analysis_cache_key(context: dict) -> str:
+    """Stable cache key for an unchanged selected-case analysis context."""
+    payload = {
+        "case_ids": context.get("case_ids", []),
+        "context": build_llm_context(context),
+        "task": "concise investigator-facing case analysis",
+    }
+    raw = json.dumps(
+        payload,
+        default=str,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "analysis:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def _chat_cache_key(context: dict, message: str, history: list[dict[str, str]] | None) -> str:
     payload = {
         "case_ids": context.get("case_ids", []),
@@ -205,7 +222,14 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
 
+    cache_key = _analysis_cache_key(context)
+    cached_answer = get_cached_stream(cache_key)
+    if cached_answer is not None:
+        log_audit(db, user.id, "generate_analysis_cache_hit", "case", ",".join(context["case_ids"]))
+        return _cached_stream_response(cached_answer, context)
+
     def event_stream():
+        chunks: list[str] = []
         try:
             for token in stream_chat(
                 _llm_messages(
@@ -214,7 +238,11 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
                     "Highlight important relationships, entity patterns, evidence, and notable observations.",
                 )
             ):
+                chunks.append(token)
                 yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+            answer = "".join(chunks)
+            set_cached_stream(cache_key, answer)
             log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
             yield json.dumps(
                 {"type": "done", "context": context, "mode": "streaming"},
