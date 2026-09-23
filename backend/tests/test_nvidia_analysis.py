@@ -11,7 +11,14 @@ def test_nvidia_settings_defaults(monkeypatch):
     fresh = Settings()
     assert fresh.NVIDIA_API_KEY == ""
     assert fresh.NVIDIA_BASE_URL == "https://integrate.api.nvidia.com/v1"
-    assert fresh.NVIDIA_MODEL == "nvidia/nemotron-3.5-lightning-30b-a3b"
+    assert fresh.NVIDIA_MODEL in (
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+    )
+    assert fresh.NVIDIA_FALLBACK_MODEL in (
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+    )
 
 
 def test_nvidia_client_is_disabled_without_api_key(monkeypatch):

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { Spinner, ErrorBox, Panel } from '../components/ui'
-import NetworkGraph from '../components/NetworkGraph'
+const NetworkGraph = lazy(() => import('../components/NetworkGraph'))
 import { useI18n } from '../i18n'
 
 const NODE_TYPES = ['person', 'phone', 'vehicle', 'account', 'location', 'case', 'event', 'evidence', 'document']
@@ -55,7 +55,9 @@ export default function GraphPage() {
         title={t('relationship_network_panel')}
         actions={<span className="muted small">{t('nodes_edges_count', { nodes: visibleNodes.length, edges: visibleEdges.length })}</span>}
       >
-        <NetworkGraph data={{ nodes: visibleNodes, edges: visibleEdges }} onSelectNode={onSelectNode} />
+        <Suspense fallback={<Spinner />}>
+          <NetworkGraph data={{ nodes: visibleNodes, edges: visibleEdges }} onSelectNode={onSelectNode} />
+        </Suspense>
       </Panel>
     </div>
   )

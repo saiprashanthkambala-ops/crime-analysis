@@ -57,9 +57,11 @@ class Settings:
 
         self.NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
         self.NVIDIA_BASE_URL: str = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
-        self.NVIDIA_MODEL: str = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
+        self.NVIDIA_MODEL: str = os.getenv(
+            "NVIDIA_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+        )
         self.NVIDIA_FALLBACK_MODEL: str = os.getenv(
-            "NVIDIA_FALLBACK_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+            "NVIDIA_FALLBACK_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b"
         )
         self.NVIDIA_TEMPERATURE: float = float(os.getenv("NVIDIA_TEMPERATURE", "0.3"))
         self.NVIDIA_TOP_P: float = float(os.getenv("NVIDIA_TOP_P", "0.95"))

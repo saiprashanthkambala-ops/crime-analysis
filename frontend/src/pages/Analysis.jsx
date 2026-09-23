@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react'
 import { api, streamAnalysisChat, streamAnalysisGenerate } from '../api'
 import { ErrorBox, Panel, Spinner, StatCard } from '../components/ui'
-import NetworkGraph from '../components/NetworkGraph'
+const NetworkGraph = lazy(() => import('../components/NetworkGraph'))
 import MarkdownMessage from '../components/MarkdownMessage'
 import { useI18n } from '../i18n'
 import { useAnalysisRuntime } from '../analysisRuntime'
@@ -761,7 +761,9 @@ export default function Analysis() {
         }
       >
         {graph.nodes?.length ? (
-          <NetworkGraph data={graph} onSelectNode={openEntity} />
+          <Suspense fallback={<div className="empty muted">Loading graph visualizer...</div>}>
+            <NetworkGraph data={graph} onSelectNode={openEntity} />
+          </Suspense>
         ) : (
           <div className="empty muted">
             {t('prompt_select_generate_graph')}

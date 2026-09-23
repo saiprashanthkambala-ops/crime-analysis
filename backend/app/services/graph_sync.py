@@ -42,6 +42,91 @@ def _merge_edge(tx, source_label, source_key, rel_type, target_label, target_key
     tx.run(query, source_key=source_key, target_key=target_key, props=props or {}).consume()
 
 
+def _prune_case_orphans(
+    tx,
+    case_id: str,
+    expected_doc_ids: list[str],
+    expected_entity_keys: list[str],
+    expected_event_ids: list,
+    expected_evidence_ids: list[str],
+    expected_person_ids: list[str],
+) -> None:
+    """Safely remove orphaned Neo4j nodes and edges strictly scoped to case_id.
+
+    PostgreSQL is authoritative. Nodes or relationships belonging to other
+    cases are strictly preserved and never deleted.
+    """
+    # 1. Documents belonging to this case not in SQL
+    tx.run(
+        """
+        MATCH (d:Document)-[r:BELONGS_TO]->(c:Case {id: $case_id})
+        WHERE NOT d.id IN $expected_docs
+        DELETE r
+        WITH d
+        WHERE NOT (d)-[:BELONGS_TO]->(:Case)
+        DETACH DELETE d
+        """,
+        case_id=case_id,
+        expected_docs=expected_doc_ids,
+    ).consume()
+
+    # 2. Events belonging to this case not in SQL
+    tx.run(
+        """
+        MATCH (ev:Event)-[r:BELONGS_TO]->(c:Case {id: $case_id})
+        WHERE NOT ev.id IN $expected_events AND NOT toString(ev.id) IN $expected_events
+        DELETE r
+        WITH ev
+        WHERE NOT (ev)-[:BELONGS_TO]->(:Case)
+        DETACH DELETE ev
+        """,
+        case_id=case_id,
+        expected_events=expected_event_ids,
+    ).consume()
+
+    # 3. Evidence belonging to this case not in SQL
+    tx.run(
+        """
+        MATCH (e:Evidence)-[r:BELONGS_TO]->(c:Case {id: $case_id})
+        WHERE NOT e.id IN $expected_evidence
+        DELETE r
+        WITH e
+        WHERE NOT (e)-[:BELONGS_TO]->(:Case)
+        DETACH DELETE e
+        """,
+        case_id=case_id,
+        expected_evidence=expected_evidence_ids,
+    ).consume()
+
+    # 4. Identifier entities belonging to this case not in SQL
+    tx.run(
+        """
+        MATCH (e)-[r:BELONGS_TO]->(c:Case {id: $case_id})
+        WHERE (e:Phone OR e:Vehicle OR e:BankAccount OR e:Location) AND NOT e.key IN $expected_entities
+        DELETE r
+        WITH e
+        WHERE NOT (e)-[:BELONGS_TO]->(:Case)
+        DETACH DELETE e
+        """,
+        case_id=case_id,
+        expected_entities=expected_entity_keys,
+    ).consume()
+
+    # 5. Persons linked to this case not in SQL
+    tx.run(
+        """
+        MATCH (p:Person)-[r:INVOLVED_IN]->(c:Case {id: $case_id})
+        WHERE NOT p.id IN $expected_persons
+        DELETE r
+        WITH p
+        WHERE NOT (p)-[:INVOLVED_IN]->(:Case) AND NOT (p)--()
+        DELETE p
+        """,
+        case_id=case_id,
+        expected_persons=expected_person_ids,
+    ).consume()
+
+
 def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
     """Synchronize one SQL case into Neo4j. Repeated calls are idempotent."""
     case = db.get(Case, case_id)
@@ -76,9 +161,31 @@ def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
             .all()
         )
 
+    entity_labels = {
+        "PHONE": "Phone", "VEHICLE": "Vehicle", "BANK_ACCOUNT": "BankAccount",
+        "LOCATION": "Location",
+    }
+    expected_doc_ids = [d.id for d in documents]
+    expected_entity_keys = list({
+        e.normalized_value for e in entities
+        if entity_labels.get(e.entity_type) and e.normalized_value
+    })
+    expected_event_ids = [str(ev.id) for ev in events] + [ev.id for ev in events if isinstance(ev.id, int)]
+    expected_evidence_ids = [evd.id for evd in evidence]
+    expected_person_ids = [p.id for p in persons]
+
     driver = get_driver()
     with driver.session() as session:
         def work(tx):
+            _prune_case_orphans(
+                tx,
+                case.id,
+                expected_doc_ids,
+                expected_entity_keys,
+                expected_event_ids,
+                expected_evidence_ids,
+                expected_person_ids,
+            )
             _merge_id_node(tx, "Case", case.id, {
                 "id": case.id, "name": case.name, "description": case.description,
                 "status": case.status,
@@ -486,3 +593,64 @@ def sync_case_to_neo4j(db: Session, case_id: str) -> dict:
             case.neo4j_sync_error = str(exc)[:1000]
             db.commit()
         raise
+
+
+def prune_case_orphans_in_neo4j(db: Session, case_id: str) -> dict:
+    """Explicitly prune orphaned Neo4j nodes and relationships belonging to case_id.
+
+    PostgreSQL is authoritative. Never touches data belonging to another case.
+    Returns the reconciliation status after pruning.
+    """
+    case = db.get(Case, case_id)
+    if case is None:
+        raise ValueError("Case not found")
+
+    documents = db.query(Document).filter(Document.case_id == case_id).all()
+    entities = db.query(Entity).filter(Entity.case_id == case_id).all()
+    events = db.query(Event).filter(Event.case_id == case_id).all()
+    evidence = db.query(Evidence).filter(Evidence.case_id == case_id).all()
+
+    person_ids = set()
+    for e in evidence:
+        person_ids.update(x for x in (e.person_a_id, e.person_b_id) if x)
+    for e in events:
+        person_ids.update(x for x in (e.person_a_id, e.person_b_id) if x)
+    linked_person_rows = (
+        db.query(person_entities.c.person_id)
+        .join(Entity, Entity.id == person_entities.c.entity_id)
+        .filter(Entity.case_id == case_id)
+        .distinct()
+        .all()
+    )
+    person_ids.update(row[0] for row in linked_person_rows)
+    persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+
+    entity_labels = {
+        "PHONE": "Phone", "VEHICLE": "Vehicle", "BANK_ACCOUNT": "BankAccount",
+        "LOCATION": "Location",
+    }
+    expected_doc_ids = [d.id for d in documents]
+    expected_entity_keys = list({
+        e.normalized_value for e in entities
+        if entity_labels.get(e.entity_type) and e.normalized_value
+    })
+    expected_event_ids = [str(ev.id) for ev in events] + [ev.id for ev in events if isinstance(ev.id, int)]
+    expected_evidence_ids = [evd.id for evd in evidence]
+    expected_person_ids = [p.id for p in persons]
+
+    driver = get_driver()
+    with driver.session() as session:
+        session.execute_write(
+            lambda tx: _prune_case_orphans(
+                tx,
+                case_id,
+                expected_doc_ids,
+                expected_entity_keys,
+                expected_event_ids,
+                expected_evidence_ids,
+                expected_person_ids,
+            )
+        )
+
+    return reconcile_case_in_neo4j(db, case_id)
+
