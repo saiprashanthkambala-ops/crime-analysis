@@ -1147,3 +1147,92 @@
     text-align: left;
   }
 }
+
+
+/* ------------------------------------------------------------- Royal blue section headers */
+:root {
+  --royal-blue: #4169e1;
+  --royal-blue-dark: #3457c5;
+}
+
+.analysis-page .analysis-blue-panel > .panel-head,
+.timeline-page .panel > .panel-head,
+.import-page .panel > .panel-head,
+.cases-page .panel > .panel-head,
+.case-detail-page .panel > .panel-head {
+  background: var(--royal-blue);
+  border-bottom-color: var(--royal-blue-dark);
+  color: #ffffff;
+}
+
+.analysis-page .analysis-blue-panel > .panel-head h3,
+.analysis-page .analysis-blue-panel > .panel-head .panel-actions,
+.analysis-page .analysis-blue-panel > .panel-head .panel-actions .muted,
+.timeline-page .panel > .panel-head h3,
+.timeline-page .panel > .panel-head .panel-actions,
+.timeline-page .panel > .panel-head .panel-actions .muted,
+.import-page .panel > .panel-head h3,
+.import-page .panel > .panel-head .panel-actions,
+.import-page .panel > .panel-head .panel-actions .muted,
+.cases-page .panel > .panel-head h3,
+.cases-page .panel > .panel-head .panel-actions,
+.cases-page .panel > .panel-head .panel-actions .muted,
+.case-detail-page .panel > .panel-head h3,
+.case-detail-page .panel > .panel-head .panel-actions,
+.case-detail-page .panel > .panel-head .panel-actions .muted {
+  color: #ffffff !important;
+}
+
+/* Analysis controls requested to use the same royal-blue treatment. */
+.analysis-page .analysis-actions .btn-primary,
+.analysis-page .analysis-actions .analysis-generate-btn,
+.analysis-page .analysis-actions .analysis-graph-btn {
+  background: var(--royal-blue);
+  border-color: var(--royal-blue);
+  color: #ffffff;
+}
+
+.analysis-page .analysis-actions .analysis-generate-btn:hover:not(:disabled),
+.analysis-page .analysis-actions .analysis-graph-btn:hover:not(:disabled) {
+  background: var(--royal-blue-dark);
+  border-color: var(--royal-blue-dark);
+}
+
+/* Timeline and importer page hooks. */
+.timeline-page .filter-row,
+.import-page .case-picker { margin-top: 2px; }
+
+/* Case page heading block + clean case navigation button. */
+.case-page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+/* Red glossy close button shared by modal close controls. */
+.access-modal-close,
+.entity-modal-close,
+.dashboard-metric-close {
+  color: #b91c1c !important;
+  background: linear-gradient(180deg, #fff7f7 0%, #fee2e2 100%) !important;
+  border-color: #fca5a5 !important;
+  text-shadow: 0 1px 0 #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.85), 0 1px 3px rgba(127,29,29,.16);
+}
+.access-modal-close:hover,
+.entity-modal-close:hover,
+.dashboard-metric-close:hover {
+  color: #991b1b !important;
+  background: linear-gradient(180deg, #ffecec 0%, #fecaca 100%) !important;
+  border-color: #f87171 !important;
+}
+
+/* Case detail back navigation */
+.case-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-bottom: 2px;
+}

@@ -396,7 +396,7 @@ export default function Analysis() {
         <div className="analysis-actions">
           <div className="analysis-action-block">
             <button
-              className="btn btn-primary"
+              className="btn btn-primary analysis-generate-btn"
               disabled={
                 !selected.length ||
                 generating ||

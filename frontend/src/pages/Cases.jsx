@@ -30,7 +30,7 @@ export default function Cases() {
   if (!cases) return <Spinner />
 
   return (
-    <div className="page">
+    <div className="page cases-page">
       <h2>{t('cases_title')}</h2>
       <div className="two-col">
         <Panel title={t('case_list')}>

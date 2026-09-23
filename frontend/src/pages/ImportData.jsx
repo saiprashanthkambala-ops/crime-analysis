@@ -357,7 +357,7 @@ export default function ImportData() {
   const recentDocIds = new Set((lastImport && lastImport.ids) || [])
 
   return (
-    <div className="page">
+    <div className="page import-page">
       <div className="page-head">
         <div>
           <h2>{t('dataset_importer')}</h2>
