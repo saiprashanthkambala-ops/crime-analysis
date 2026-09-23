@@ -22,7 +22,7 @@ export default function SearchPage() {
   const total = res.people.length + res.entities.length + res.cases.length
 
   return (
-    <div className="page">
+    <div className="page app-section-page">
       <h2>{t('search_results_for', { q })}</h2>
       <p className="muted">{t('matches_count', { count: total })}</p>
 
