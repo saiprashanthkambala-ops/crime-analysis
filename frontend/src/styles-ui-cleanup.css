@@ -1236,3 +1236,72 @@
   width: fit-content;
   margin-bottom: 2px;
 }
+
+
+/* ---------------------------------------------------------------- Global data/info block headers */
+:root {
+  --navy-blue: #0b2a5b;
+  --navy-blue-2: #123a78;
+  --leaf-green: #9be7a8;
+  --leaf-green-2: #7bd88f;
+  --leaf-green-text: #123a1c;
+}
+
+/* Apply the shared navy/white header treatment to every application panel,
+   while keeping any specialized component body/layout styling intact. */
+.page .panel > .panel-head {
+  background: var(--navy-blue);
+  border-bottom-color: var(--navy-blue-2);
+  color: #ffffff;
+}
+.page .panel > .panel-head h3,
+.page .panel > .panel-head .panel-actions,
+.page .panel > .panel-head .panel-actions .muted,
+.page .panel > .panel-head .link {
+  color: #ffffff !important;
+}
+
+/* Preserve the stronger royal-blue look requested earlier on Analysis panels. */
+.analysis-page .analysis-blue-panel > .panel-head {
+  background: var(--navy-blue);
+  border-bottom-color: var(--navy-blue-2);
+}
+
+/* Graph generation + graph analysis controls: light leaf green with readable text. */
+.analysis-page .analysis-actions .analysis-graph-btn,
+.analysis-page .analysis-actions .graph-analysis-btn,
+.analysis-page .analysis-actions .generate-graph-btn {
+  background: var(--leaf-green);
+  border-color: var(--leaf-green-2);
+  color: var(--leaf-green-text);
+  font-weight: 700;
+}
+.analysis-page .analysis-actions .analysis-graph-btn:hover:not(:disabled),
+.analysis-page .analysis-actions .graph-analysis-btn:hover:not(:disabled),
+.analysis-page .analysis-actions .generate-graph-btn:hover:not(:disabled) {
+  background: var(--leaf-green-2);
+  border-color: #63c977;
+  color: var(--leaf-green-text);
+}
+
+/* Clickable names across list/detail navigation get a consistent focus cue. */
+.page .link:focus-visible,
+.page a.link:focus-visible {
+  outline: 2px solid var(--navy-blue);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Common detail pages: clear left-side return affordance. */
+.page .page-back-button,
+.page .case-back-button,
+.page .back-button,
+.page .detail-back-button,
+.page .profile-back-button,
+.page .relationship-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin-bottom: 2px;
+}
