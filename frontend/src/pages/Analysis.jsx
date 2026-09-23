@@ -350,7 +350,6 @@ export default function Analysis() {
 
       <Panel
         title={t('cases_for_analysis')}
-        className="analysis-blue-panel"
         actions={
           <span className="muted small">
             {t('selected_count', { count: selected.length })}
@@ -414,7 +413,7 @@ export default function Analysis() {
 
           <div className="analysis-action-block">
             <button
-              className="btn"
+              className="btn btn-warn generate-graph-btn"
               disabled={!selected.length || graphStatus === 'generating'}
               onClick={generateGraph}
             >
@@ -746,7 +745,6 @@ export default function Analysis() {
 
       <Panel
         title={t('relevant_graph_title')}
-        className="analysis-blue-panel"
         actions={
           graphStatus !== 'not_loaded' ? (
             <span className="muted small">

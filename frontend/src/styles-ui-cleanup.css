@@ -1185,15 +1185,13 @@
 
 /* Analysis controls requested to use the same royal-blue treatment. */
 .analysis-page .analysis-actions .btn-primary,
-.analysis-page .analysis-actions .analysis-generate-btn,
-.analysis-page .analysis-actions .analysis-graph-btn {
+.analysis-page .analysis-actions .analysis-generate-btn {
   background: var(--royal-blue);
   border-color: var(--royal-blue);
   color: #ffffff;
 }
 
-.analysis-page .analysis-actions .analysis-generate-btn:hover:not(:disabled),
-.analysis-page .analysis-actions .analysis-graph-btn:hover:not(:disabled) {
+.analysis-page .analysis-actions .analysis-generate-btn:hover:not(:disabled) {
   background: var(--royal-blue-dark);
   border-color: var(--royal-blue-dark);
 }
@@ -1267,21 +1265,38 @@
   border-bottom-color: var(--navy-blue-2);
 }
 
-/* Graph generation + graph analysis controls: light leaf green with readable text. */
-.analysis-page .analysis-actions .analysis-graph-btn,
-.analysis-page .analysis-actions .graph-analysis-btn,
-.analysis-page .analysis-actions .generate-graph-btn {
+/* Graph analysis controls: light leaf green with readable text. */
+.analysis-page .analysis-actions .graph-analysis-btn {
   background: var(--leaf-green);
   border-color: var(--leaf-green-2);
   color: var(--leaf-green-text);
   font-weight: 700;
 }
-.analysis-page .analysis-actions .analysis-graph-btn:hover:not(:disabled),
-.analysis-page .analysis-actions .graph-analysis-btn:hover:not(:disabled),
-.analysis-page .analysis-actions .generate-graph-btn:hover:not(:disabled) {
+.analysis-page .analysis-actions .graph-analysis-btn:hover:not(:disabled) {
   background: var(--leaf-green-2);
   border-color: #63c977;
   color: var(--leaf-green-text);
+}
+
+/* Graph generation controls: orange styling consistent with application button/badge language. */
+.analysis-page .analysis-actions .generate-graph-btn {
+  background: rgba(249, 115, 22, 0.15);
+  border-color: rgba(249, 115, 22, 0.45);
+  color: #f97316;
+  font-weight: 700;
+}
+.analysis-page .analysis-actions .generate-graph-btn:hover:not(:disabled) {
+  background: rgba(249, 115, 22, 0.25);
+  border-color: #f97316;
+  color: #f97316;
+}
+[data-theme="light"] .analysis-page .analysis-actions .generate-graph-btn {
+  color: #c2410c;
+  border-color: rgba(194, 65, 12, 0.45);
+}
+[data-theme="light"] .analysis-page .analysis-actions .generate-graph-btn:hover:not(:disabled) {
+  border-color: #c2410c;
+  color: #c2410c;
 }
 
 /* Clickable names across list/detail navigation get a consistent focus cue. */
