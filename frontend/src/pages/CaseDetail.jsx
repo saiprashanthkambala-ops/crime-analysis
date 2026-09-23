@@ -24,7 +24,11 @@ export default function CaseDetail() {
   if (!caseData) return <Spinner />
 
   return (
-    <div className="page">
+    <div className="page case-detail-page">
+      <Link className="btn btn-outline case-back-button" to="/cases" aria-label={t('cases_title')}>
+        <span aria-hidden="true">←</span>
+        {t('cases_title')}
+      </Link>
       <div className="page-head">
         <div>
           <h2>{caseData.name}</h2>
