@@ -5,6 +5,7 @@ const NetworkGraph = lazy(() => import('../components/NetworkGraph'))
 import MarkdownMessage from '../components/MarkdownMessage'
 import { useI18n } from '../i18n'
 import { useAnalysisRuntime } from '../analysisRuntime'
+import { createTokenCoalescer } from '../utils/streamCoalescer'
 
 const REQUEST_TIMEOUT_MS = 300000
 
@@ -209,23 +210,32 @@ export default function Analysis() {
         })
     }
 
+    let currentAnalysis = ''
+    const coalescer = createTokenCoalescer((chunk) => {
+      currentAnalysis += chunk
+      setAnalysis(currentAnalysis)
+    })
+
     try {
       const analysisResult = await streamAnalysisGenerate(
         selected,
-        (token) => setAnalysis((prev) => (prev || '') + token)
+        coalescer.push
       )
+      coalescer.flush()
 
       if (analysisResult?.context) {
         setContext(analysisResult.context)
       }
       finishProgress(setAnalysisProgress, analysisProgressTimer)
     } catch (e) {
+      coalescer.flush()
       setErr(
         e.name === 'AbortError'
           ? 'Analysis timed out waiting for AI provider. Check NVIDIA API key and backend logs.'
           : e.message
       )
     } finally {
+      coalescer.flush()
       finishProgress(setAnalysisProgress, analysisProgressTimer)
       setGenerating(false)
     }
@@ -294,28 +304,34 @@ export default function Analysis() {
       }))
       .filter((m) => m.content)
 
+    let currentAssistantText = ''
+    const coalescer = createTokenCoalescer((chunk) => {
+      currentAssistantText += chunk
+      setMessages((prev) =>
+        prev.map((m, i) =>
+          i === messageIndex + 1
+            ? { ...m, content: currentAssistantText }
+            : m
+        )
+      )
+    })
+
     try {
       const data = await streamAnalysisChat(
         selected,
         text,
-        (token) => {
-          setMessages((prev) =>
-            prev.map((m, i) =>
-              i === messageIndex + 1
-                ? { ...m, content: (m.content || '') + token }
-                : m
-            )
-          )
-        },
+        coalescer.push,
         {
           history,
           generatedAnalysis: analysis || null,
         }
       )
+      coalescer.flush()
 
       if (data.context) setContext(data.context)
       setAgentTools((prev) => ({ ...prev, [messageIndex + 1]: data.tool || data.mode || 'case_context' }))
     } catch (e) {
+      coalescer.flush()
       const detail = e.name === 'AbortError'
         ? 'Chat timed out waiting for AI provider. Check NVIDIA API key and backend logs.'
         : e.message
@@ -328,6 +344,7 @@ export default function Analysis() {
         )
       )
     } finally {
+      coalescer.flush()
       setChatting(false)
     }
   }

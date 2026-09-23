@@ -191,3 +191,10 @@ def stats(user: User = Depends(require_admin), db: Session = Depends(get_db)):
         "entities": db.query(Entity).count(),
         "events": db.query(Event).count(),
     }
+
+
+@router.get("/admin/telemetry/ai")
+def get_ai_telemetry(user: User = Depends(require_admin)):
+    """Return lightweight aggregated AI latency telemetry (admin-only)."""
+    from ..services.ai_telemetry import get_ai_telemetry_summary
+    return get_ai_telemetry_summary()

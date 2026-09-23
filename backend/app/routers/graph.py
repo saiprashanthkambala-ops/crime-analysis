@@ -75,6 +75,7 @@ def generate_graph(
 @router.post("/sync/{case_id}")
 def sync_graph(
     case_id: str,
+    force: bool = False,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -85,7 +86,7 @@ def sync_graph(
     if not db.get(Case, case_id):
         raise HTTPException(status_code=404, detail="Case not found")
     try:
-        result = sync_case_to_neo4j(db, case_id)
+        result = sync_case_to_neo4j(db, case_id, force=force)
         return {"ok": True, "result": result, "verification": result.get("verification")}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -119,12 +120,15 @@ def sync_status(
     case = db.get(Case, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    raw_counts = case.neo4j_sync_counts or {}
+    clean_counts = {k: v for k, v in raw_counts.items() if not k.startswith("_")} if isinstance(raw_counts, dict) else {}
     return {
         "case_id": case.id,
         "status": case.neo4j_sync_status or "PENDING",
         "synced_at": case.neo4j_sync_at.isoformat() if case.neo4j_sync_at else None,
         "error": case.neo4j_sync_error,
-        "counts": case.neo4j_sync_counts or {},
+        "counts": clean_counts,
+        "fingerprint": raw_counts.get("_fingerprint") if isinstance(raw_counts, dict) else None,
     }
 
 

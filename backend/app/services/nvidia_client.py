@@ -35,6 +35,22 @@ _STREAM_CACHE_MAX_ITEMS = 128
 _CAPACITY_RETRY_DELAYS = (0.5, 1.0)
 _MAX_CAPACITY_RETRIES = len(_CAPACITY_RETRY_DELAYS)
 
+import threading
+_stream_meta_local = threading.local()
+
+
+def get_last_stream_metadata() -> dict[str, Any]:
+    """Return runtime metadata from the most recent stream/chat call in this thread."""
+    return getattr(
+        _stream_meta_local,
+        "data",
+        {
+            "model": settings.NVIDIA_MODEL,
+            "used_fallback": False,
+            "retries": 0,
+        },
+    )
+
 
 def _is_temporary_capacity_error(exc: Exception) -> bool:
     """Detect transient provider capacity, concurrency, or rate-limit issues."""
@@ -152,7 +168,7 @@ def chat(
 
         for retry_attempt in range(max_retries + 1):
             try:
-                return _client().chat.completions.create(
+                res = _client().chat.completions.create(
                     model=model_name,
                     messages=messages,
                     temperature=settings.NVIDIA_TEMPERATURE,
@@ -162,6 +178,12 @@ def chat(
                     stream=stream,
                     timeout=request_timeout,
                 )
+                _stream_meta_local.data = {
+                    "model": model_name,
+                    "used_fallback": (model_idx > 0),
+                    "retries": retry_attempt,
+                }
+                return res
             except Exception as exc:
                 last_error = exc
                 if retry_attempt < max_retries and _is_temporary_capacity_error(exc):
@@ -236,6 +258,11 @@ def stream_chat(messages: list[dict[str, str]]) -> Iterator[str]:
                     stream=True,
                     timeout=stream_timeout,
                 )
+                _stream_meta_local.data = {
+                    "model": model_name,
+                    "used_fallback": (model_idx > 0),
+                    "retries": retry_attempt,
+                }
                 for chunk in stream:
                     if not chunk.choices:
                         continue

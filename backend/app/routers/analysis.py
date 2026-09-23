@@ -16,12 +16,13 @@ from ..database import get_db
 from ..models import User
 from ..security import get_current_user, log_audit
 from ..services.case_analysis import build_case_analysis, build_llm_context
-from ..services.graph_view import get_case_graph
 from ..services.investigation_agent import run_investigation_tools
+from ..services.ai_telemetry import record_ai_metric
 from ..services.nvidia_client import (
     NVIDIAClientError,
     chat as nvidia_chat,
     get_cached_stream,
+    get_last_stream_metadata,
     is_configured,
     set_cached_stream,
     stream_chat,
@@ -271,6 +272,17 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
                 yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
 
             t_end = time.perf_counter()
+            meta = get_last_stream_metadata()
+            record_ai_metric(
+                endpoint="generate_analysis",
+                model=meta.get("model", settings.NVIDIA_MODEL),
+                used_fallback=meta.get("used_fallback", False),
+                ttft_ms=(t_first_token - t_llm_start) * 1000 if ttft_recorded else None,
+                duration_ms=(t_end - t_llm_start) * 1000,
+                token_count=len(chunks),
+                retries=meta.get("retries", 0),
+                success=True,
+            )
             answer = "".join(chunks)
             set_cached_stream(cache_key, answer)
             log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
@@ -287,8 +299,32 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
                 separators=(",", ":"),
             ) + "\n"
         except NVIDIAClientError as exc:
+            meta = get_last_stream_metadata()
+            record_ai_metric(
+                endpoint="generate_analysis",
+                model=meta.get("model", settings.NVIDIA_MODEL),
+                used_fallback=meta.get("used_fallback", False),
+                ttft_ms=(t_first_token - t_llm_start) * 1000 if ttft_recorded else None,
+                duration_ms=(time.perf_counter() - t_llm_start) * 1000,
+                token_count=len(chunks),
+                retries=meta.get("retries", 0),
+                success=False,
+                error_type=type(exc).__name__,
+            )
             yield json.dumps({"type": "error", "detail": str(exc)}, separators=(",", ":")) + "\n"
-        except Exception:
+        except Exception as exc:
+            meta = get_last_stream_metadata()
+            record_ai_metric(
+                endpoint="generate_analysis",
+                model=meta.get("model", settings.NVIDIA_MODEL),
+                used_fallback=meta.get("used_fallback", False),
+                ttft_ms=(t_first_token - t_llm_start) * 1000 if ttft_recorded else None,
+                duration_ms=(time.perf_counter() - t_llm_start) * 1000,
+                token_count=len(chunks),
+                retries=meta.get("retries", 0),
+                success=False,
+                error_type=type(exc).__name__,
+            )
             yield json.dumps({"type": "error", "detail": "NVIDIA analysis streaming request failed. Check backend logs."}, separators=(",", ":")) + "\n"
 
     return StreamingResponse(
@@ -395,6 +431,17 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
                 chunks.append(token)
                 yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
             t_end = time.perf_counter()
+            meta = get_last_stream_metadata()
+            record_ai_metric(
+                endpoint="analysis_chat",
+                model=meta.get("model", settings.NVIDIA_MODEL),
+                used_fallback=meta.get("used_fallback", False),
+                ttft_ms=(t_first_token - t_llm_start) * 1000 if ttft_recorded else None,
+                duration_ms=(t_end - t_llm_start) * 1000,
+                token_count=len(chunks),
+                retries=meta.get("retries", 0),
+                success=True,
+            )
             answer = "".join(chunks)
             set_cached_stream(cache_key, answer)
             log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
@@ -418,8 +465,32 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
                 separators=(",", ":"),
             ) + "\n"
         except NVIDIAClientError as exc:
+            meta = get_last_stream_metadata()
+            record_ai_metric(
+                endpoint="analysis_chat",
+                model=meta.get("model", settings.NVIDIA_MODEL),
+                used_fallback=meta.get("used_fallback", False),
+                ttft_ms=(t_first_token - t_llm_start) * 1000 if ttft_recorded else None,
+                duration_ms=(time.perf_counter() - t_llm_start) * 1000,
+                token_count=len(chunks),
+                retries=meta.get("retries", 0),
+                success=False,
+                error_type=type(exc).__name__,
+            )
             yield json.dumps({"type": "error", "detail": str(exc)}, separators=(",", ":")) + "\n"
-        except Exception:
+        except Exception as exc:
+            meta = get_last_stream_metadata()
+            record_ai_metric(
+                endpoint="analysis_chat",
+                model=meta.get("model", settings.NVIDIA_MODEL),
+                used_fallback=meta.get("used_fallback", False),
+                ttft_ms=(t_first_token - t_llm_start) * 1000 if ttft_recorded else None,
+                duration_ms=(time.perf_counter() - t_llm_start) * 1000,
+                token_count=len(chunks),
+                retries=meta.get("retries", 0),
+                success=False,
+                error_type=type(exc).__name__,
+            )
             yield json.dumps({"type": "error", "detail": "NVIDIA streaming request failed. Check backend logs."}, separators=(",", ":")) + "\n"
 
     return StreamingResponse(
