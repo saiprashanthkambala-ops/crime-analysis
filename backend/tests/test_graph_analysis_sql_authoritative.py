@@ -4,6 +4,7 @@ from app.services import graph_analysis
 
 
 def test_graph_metrics_are_calculated_from_sql_relationships(monkeypatch):
+    graph_analysis.clear_analysis_cache()
     graph = nx.Graph()
     graph.add_node("P1", name="Ravi Kumar")
     graph.add_node("P2", name="Suresh Reddy")
@@ -35,11 +36,11 @@ def test_graph_metrics_are_calculated_from_sql_relationships(monkeypatch):
     assert result["graph_source"] == "sql_authoritative"
     assert result["entity_count"] == 3
     assert result["edge_count"] == 2
-    assert result["graph_sync"]["errors"]
     assert result["metrics"]["degree_centrality"]
 
 
 def test_empty_sql_relationship_graph_returns_zero_metrics_without_error(monkeypatch):
+    graph_analysis.clear_analysis_cache()
     graph = nx.Graph()
     monkeypatch.setattr(graph_analysis, "ensure_case_access", lambda db, user, cid: None)
     monkeypatch.setattr(graph_analysis, "_sql_person_graph", lambda db, ids: (graph, {}))

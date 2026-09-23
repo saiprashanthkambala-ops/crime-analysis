@@ -4,8 +4,10 @@ from sqlalchemy import create_engine, inspect
 
 
 def test_postgresql_url_supported():
-    url = os.getenv("DATABASE_URL", "postgresql+psycopg://crime_analysis:crime_analysis@localhost:5432/crime_analysis")
-    assert url.startswith("postgresql+psycopg://")
+    url = "postgresql+psycopg://crime_analysis:crime_analysis@localhost:5432/crime_analysis"
+    engine = create_engine(url)
+    assert engine.dialect.name == "postgresql"
+    assert engine.dialect.driver == "psycopg"
 
 
 def test_models_can_compile_for_postgresql():

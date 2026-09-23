@@ -137,16 +137,16 @@ def test_api_end_to_end():
     from app.main import app
 
     with TestClient(app) as client:  # context manager triggers startup (seeding)
-        r = client.post("/api/auth/login", json={"username": "investigator1", "password": "investor1"})
-        assert r.status_code == 200
-        token = r.json()["access_token"]
-        h = {"Authorization": f"Bearer {token}"}
-
         # unauthorized is rejected
         assert client.get("/api/cases").status_code == 401
 
+        r = client.post("/api/auth/login", json={"username": "investigator1", "password": "investor1"})
+        assert r.status_code == 200
+        token = client.cookies.get("crime_analysis_session") or r.json().get("access_token")
+        h = {"Authorization": f"Bearer {token}"} if token else {}
+
         # core endpoints
-        assert client.get("/api/admin/stats", headers=h).status_code == 200
+        assert client.get("/api/cases", headers=h).status_code == 200
         cases = client.get("/api/cases", headers=h).json()
         assert len(cases) >= 1
 
@@ -168,6 +168,9 @@ def test_api_end_to_end():
 
         # audit (admin)
         r = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
-        admin_tok = r.json()["access_token"]
-        audit = client.get("/api/audit", headers={"Authorization": f"Bearer {admin_tok}"}).json()
+        assert r.status_code == 200
+        admin_tok = client.cookies.get("crime_analysis_session") or r.json().get("access_token")
+        admin_h = {"Authorization": f"Bearer {admin_tok}"} if admin_tok else {}
+        assert client.get("/api/admin/stats", headers=admin_h).status_code == 200
+        audit = client.get("/api/audit", headers=admin_h).json()
         assert any(a["action"] == "feedback" for a in audit)

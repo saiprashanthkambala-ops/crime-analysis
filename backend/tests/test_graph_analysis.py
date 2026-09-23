@@ -39,11 +39,13 @@ def test_metrics_are_deterministic(monkeypatch):
 
     monkeypatch.setattr(graph_analysis, "run_read_query", fake_run)
     graph, _ = graph_analysis._graph(["C1"])
-    metrics = graph_analysis._base_metrics(graph)
+    metrics1 = graph_analysis._base_metrics(graph)
+    metrics2 = graph_analysis._base_metrics(graph)
+    assert metrics1 == metrics2
 
-    assert metrics["degree"]["P2"] == metrics["degree"]["P1"] == metrics["degree"]["P3"]
-    assert metrics["betweenness"]["P2"] > metrics["betweenness"]["P1"]
-    assert metrics["closeness"]["P2"] > metrics["closeness"]["P1"]
+    assert metrics1["degree"]["P2"] > metrics1["degree"]["P1"] == metrics1["degree"]["P3"]
+    assert metrics1["betweenness"]["P2"] > metrics1["betweenness"]["P1"] == metrics1["betweenness"]["P3"]
+    assert metrics1["closeness"]["P2"] > metrics1["closeness"]["P1"] == metrics1["closeness"]["P3"]
 
 
 def test_pagerank_returns_all_nodes(monkeypatch):

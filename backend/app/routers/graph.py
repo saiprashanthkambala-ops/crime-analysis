@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Person, User
-from ..security import get_current_user
+from ..security import get_current_user, ensure_case_access
 from ..services.graph_sync import sync_case_to_neo4j, reconcile_case_in_neo4j
 from ..services.graph_view import get_case_graph
 from ..services.neo4j_service import Neo4jConfigError, Neo4jConnectionError, run_read_query
@@ -31,7 +31,6 @@ def get_graph(
     requested = [x.strip() for x in (case_ids or "").split(",") if x.strip()]
     ids = requested or _authorized_case_ids(db, user)
     if requested:
-        from ..security import ensure_case_access
         for cid in ids:
             ensure_case_access(db, user, cid)
     return get_case_graph(db, user, ids)
@@ -192,7 +191,6 @@ def entity_details(
 ):
     """Return case-scoped entity details and provenance for graph-node inspection."""
     from ..models import Case, Document, Entity, Event, Evidence, Person, person_entities
-    from ..security import ensure_case_access
 
     requested_case_ids = [case_id] if case_id else []
     if case_id:

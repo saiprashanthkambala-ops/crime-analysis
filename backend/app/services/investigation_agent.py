@@ -39,7 +39,7 @@ def _fast_tools(context: dict, question: str) -> InvestigationToolResult | None:
             observations=["No relationship records were found in the selected case data."],
         )
 
-    if any(x in q for x in ("strongest relationship", "highest relationship score", "highest score", "strongest connection")):
+    if any(x in q for x in ("strongest relationship", "highest relationship score", "highest score", "strongest connection", "strongest score")) or (("strongest" in q or "highest" in q) and "score" in q):
         top = max(relationships, key=lambda r: (r.get("score") or 0))
         return InvestigationToolResult(tool="relationship_lookup", status="ok", observations=[top])
 

@@ -1,0 +1,81 @@
+{
+  "health_cached_ms": 2044.412100000045,
+  "graph_analysis_time_ms": 8.797400001640199,
+  "primary_ttft_ms": 5881.902099999934,
+  "primary_total_ms": 6277.51950000129,
+  "fallback_error": "NVIDIA streaming request failed: The read operation timed out",
+  "consistency": {
+    "C101": {
+      "sql_counts": {
+        "documents": 4,
+        "entities": 11,
+        "events": 20,
+        "evidence": 19,
+        "persons": 4,
+        "relationships": 3
+      },
+      "neo4j_counts": {
+        "persons": 4,
+        "entities": 11,
+        "documents": 4,
+        "events": 20,
+        "evidence": 19,
+        "relationships": 3
+      },
+      "matched": true,
+      "mismatches": {},
+      "sync_time_ms": 16908.665499999188,
+      "cyto_nodes": 59,
+      "cyto_edges": 168,
+      "idempotent": true
+    },
+    "C204": {
+      "sql_counts": {
+        "documents": 1,
+        "entities": 0,
+        "events": 0,
+        "evidence": 0,
+        "persons": 0,
+        "relationships": 0
+      },
+      "neo4j_counts": {
+        "persons": 0,
+        "entities": 0,
+        "documents": 1,
+        "events": 0,
+        "evidence": 0,
+        "relationships": 0
+      },
+      "matched": true,
+      "mismatches": {},
+      "sync_time_ms": 7463.032900001053,
+      "cyto_nodes": 2,
+      "cyto_edges": 1,
+      "idempotent": true
+    },
+    "C-3A3FE7": {
+      "sql_counts": {
+        "documents": 7,
+        "entities": 4,
+        "events": 4,
+        "evidence": 0,
+        "persons": 0,
+        "relationships": 0
+      },
+      "neo4j_counts": {
+        "persons": 0,
+        "entities": 4,
+        "documents": 7,
+        "events": 4,
+        "evidence": 0,
+        "relationships": 0
+      },
+      "matched": true,
+      "mismatches": {},
+      "sync_time_ms": 23084.36140000049,
+      "cyto_nodes": 16,
+      "cyto_edges": 15,
+      "idempotent": true
+    }
+  }
+}

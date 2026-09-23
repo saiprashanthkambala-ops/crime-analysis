@@ -60,6 +60,12 @@ def _set_cached_analysis(case_ids: list[str], value: dict[str, Any]) -> None:
             _analysis_cache.pop(oldest_key, None)
 
 
+def clear_analysis_cache() -> None:
+    """Clear in-memory analysis cache (useful for cache invalidation and tests)."""
+    with _analysis_cache_lock:
+        _analysis_cache.clear()
+
+
 def _fetch_person_graph(case_ids: list[str]) -> dict[str, Any]:
     if not case_ids:
         return {"nodes": [], "edges": []}

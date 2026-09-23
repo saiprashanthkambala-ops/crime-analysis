@@ -21,6 +21,7 @@ def test_entity_details_returns_provenance(monkeypatch):
     class Query:
         def __init__(self, items): self.items = items
         def filter(self, *args, **kwargs): return self
+        def join(self, *args, **kwargs): return self
         def all(self): return self.items
         def first(self): return self.items[0] if self.items else None
         def order_by(self, *args, **kwargs): return self

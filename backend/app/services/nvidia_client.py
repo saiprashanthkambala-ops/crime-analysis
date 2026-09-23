@@ -1,9 +1,17 @@
 import logging
+import time
 from threading import Lock
 from typing import Any, Iterator
 
 import httpx
-from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
+from openai import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    OpenAI,
+    RateLimitError,
+)
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -23,6 +31,34 @@ _stream_cache: dict[str, tuple[float, str]] = {}
 _stream_cache_lock = Lock()
 _STREAM_CACHE_TTL_SECONDS = 300
 _STREAM_CACHE_MAX_ITEMS = 128
+
+_CAPACITY_RETRY_DELAYS = (0.5, 1.0)
+_MAX_CAPACITY_RETRIES = len(_CAPACITY_RETRY_DELAYS)
+
+
+def _is_temporary_capacity_error(exc: Exception) -> bool:
+    """Detect transient provider capacity, concurrency, or rate-limit issues."""
+    if isinstance(exc, RateLimitError):
+        return True
+    if isinstance(exc, APIStatusError):
+        status = getattr(exc, "status_code", None)
+        if status in (429, 503):
+            return True
+
+    msg = str(exc).lower()
+    transient_indicators = (
+        "resourceexhausted",
+        "resource_exhausted",
+        "request limit reached",
+        "worker local total request limit",
+        "rate limit",
+        "too many requests",
+        "temporarily unavailable",
+        "server is overloaded",
+        "capacity",
+        "16/16",
+    )
+    return any(ind in msg for ind in transient_indicators)
 
 
 def get_cached_stream(cache_key: str) -> str | None:
@@ -110,55 +146,72 @@ def chat(
     models = _models_to_attempt()
     last_error: Exception | None = None
 
-    for idx, model_name in enumerate(models):
-        try:
-            return _client().chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=settings.NVIDIA_TEMPERATURE,
-                top_p=settings.NVIDIA_TOP_P,
-                max_tokens=settings.NVIDIA_MAX_TOKENS,
-                extra_body=extra_body,
-                stream=stream,
-                timeout=request_timeout,
-            )
-        except (APITimeoutError, APIConnectionError, APIStatusError, Exception) as exc:
-            last_error = exc
-            has_next = idx + 1 < len(models)
-            if has_next:
-                logger.warning(
-                    "Primary NVIDIA chat model '%s' failed (%s: %s). Trying fallback '%s'...",
-                    model_name, type(exc).__name__, exc, models[idx + 1]
+    for model_idx, model_name in enumerate(models):
+        is_primary = (model_idx == 0)
+        max_retries = _MAX_CAPACITY_RETRIES if is_primary else 1
+
+        for retry_attempt in range(max_retries + 1):
+            try:
+                return _client().chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=settings.NVIDIA_TEMPERATURE,
+                    top_p=settings.NVIDIA_TOP_P,
+                    max_tokens=settings.NVIDIA_MAX_TOKENS,
+                    extra_body=extra_body,
+                    stream=stream,
+                    timeout=request_timeout,
                 )
-                continue
-            logger.error("All NVIDIA chat models failed. Last error from '%s': %s", model_name, exc)
-            if isinstance(exc, APITimeoutError):
-                raise NVIDIAClientError(
-                    "NVIDIA request timed out. The provider did not return within the configured timeout."
-                ) from exc
-            if isinstance(exc, APIConnectionError):
-                raise NVIDIAClientError(
-                    "Could not connect to NVIDIA. Check internet access and NVIDIA_BASE_URL."
-                ) from exc
-            if isinstance(exc, APIStatusError):
-                raise _provider_error("NVIDIA rejected the request", exc) from exc
-            raise NVIDIAClientError(f"NVIDIA request failed: {exc}") from exc
+            except Exception as exc:
+                last_error = exc
+                if retry_attempt < max_retries and _is_temporary_capacity_error(exc):
+                    delay = _CAPACITY_RETRY_DELAYS[min(retry_attempt, len(_CAPACITY_RETRY_DELAYS) - 1)]
+                    logger.warning(
+                        "NVIDIA model '%s' hit temporary capacity limit (%s: %s). Retrying (#%d/%d) in %.1fs...",
+                        model_name, type(exc).__name__, exc, retry_attempt + 1, max_retries, delay
+                    )
+                    time.sleep(delay)
+                    continue
+                break
+
+        has_next = model_idx + 1 < len(models)
+        if has_next:
+            logger.warning(
+                "Primary NVIDIA chat model '%s' failed (%s: %s). Trying fallback '%s'...",
+                model_name, type(last_error).__name__, last_error, models[model_idx + 1]
+            )
+            continue
+
+        logger.error("All NVIDIA chat models failed. Last error from '%s': %s", model_name, last_error)
+        if isinstance(last_error, APITimeoutError):
+            raise NVIDIAClientError(
+                "NVIDIA request timed out. The provider did not return within the configured timeout."
+            ) from last_error
+        if isinstance(last_error, APIConnectionError):
+            raise NVIDIAClientError(
+                "Could not connect to NVIDIA. Check internet access and NVIDIA_BASE_URL."
+            ) from last_error
+        if isinstance(last_error, APIStatusError):
+            raise _provider_error("NVIDIA rejected the request", last_error) from last_error
+        raise NVIDIAClientError(f"NVIDIA request failed: {last_error}") from last_error
 
     if last_error:
         raise NVIDIAClientError(f"NVIDIA request failed: {last_error}")
 
 
 def stream_chat(messages: list[dict[str, str]]) -> Iterator[str]:
-    """Yield answer text immediately with TTFT timeout and automatic model fallback."""
+    """Yield answer text immediately with TTFT timeout, capacity backoff retries, and automatic model fallback."""
     extra_body: dict[str, Any] = {
         "chat_template_kwargs": {"enable_thinking": False},
     }
 
     ttft_read_timeout = max(3.0, settings.NVIDIA_TTFT_TIMEOUT_SECONDS)
+    idle_read_timeout = max(3.0, settings.NVIDIA_INTER_TOKEN_TIMEOUT_SECONDS)
+    stream_read_timeout = min(ttft_read_timeout, idle_read_timeout)
     stream_timeout = httpx.Timeout(
         timeout=settings.NVIDIA_TIMEOUT_SECONDS,
         connect=10.0,
-        read=ttft_read_timeout,
+        read=stream_read_timeout,
         write=10.0,
         pool=10.0,
     )
@@ -166,60 +219,78 @@ def stream_chat(messages: list[dict[str, str]]) -> Iterator[str]:
     models = _models_to_attempt()
     last_error: Exception | None = None
 
-    for idx, model_name in enumerate(models):
-        tokens_yielded = 0
-        try:
-            stream = _client().chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=settings.NVIDIA_TEMPERATURE,
-                top_p=settings.NVIDIA_TOP_P,
-                max_tokens=settings.NVIDIA_MAX_TOKENS,
-                extra_body=extra_body,
-                stream=True,
-                timeout=stream_timeout,
-            )
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                text = getattr(delta, "content", None)
-                if text:
-                    tokens_yielded += 1
-                    yield text
+    for model_idx, model_name in enumerate(models):
+        is_primary = (model_idx == 0)
+        max_retries = _MAX_CAPACITY_RETRIES if is_primary else 1
 
-            # Completed stream successfully
-            return
-
-        except (APITimeoutError, APIConnectionError, APIStatusError, Exception) as exc:
-            last_error = exc
-            if tokens_yielded > 0:
-                logger.error("Error mid-stream from '%s' after %d tokens: %s", model_name, tokens_yielded, exc)
-                if isinstance(exc, APITimeoutError):
-                    raise NVIDIAClientError("NVIDIA streaming stalled while generating response.") from exc
-                if isinstance(exc, APIStatusError):
-                    raise _provider_error("NVIDIA streaming error", exc) from exc
-                raise NVIDIAClientError(f"NVIDIA streaming error: {exc}") from exc
-
-            has_next = idx + 1 < len(models)
-            if has_next:
-                logger.warning(
-                    "Primary model '%s' failed or timed out before emitting tokens (%s: %s). Falling back to '%s'...",
-                    model_name, type(exc).__name__, exc, models[idx + 1]
+        for retry_attempt in range(max_retries + 1):
+            tokens_yielded = 0
+            try:
+                stream = _client().chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=settings.NVIDIA_TEMPERATURE,
+                    top_p=settings.NVIDIA_TOP_P,
+                    max_tokens=settings.NVIDIA_MAX_TOKENS,
+                    extra_body=extra_body,
+                    stream=True,
+                    timeout=stream_timeout,
                 )
-                continue
-            logger.error("All NVIDIA streaming models failed. Last error from '%s': %s", model_name, exc)
-            if isinstance(exc, APITimeoutError):
-                raise NVIDIAClientError(
-                    "NVIDIA streaming request timed out. The provider did not return within the configured timeout."
-                ) from exc
-            if isinstance(exc, APIConnectionError):
-                raise NVIDIAClientError(
-                    "Could not connect to NVIDIA while streaming. Check internet access and NVIDIA_BASE_URL."
-                ) from exc
-            if isinstance(exc, APIStatusError):
-                raise _provider_error("NVIDIA rejected the streaming request", exc) from exc
-            raise NVIDIAClientError(f"NVIDIA streaming request failed: {exc}") from exc
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    text = getattr(delta, "content", None)
+                    if text:
+                        tokens_yielded += 1
+                        yield text
+
+                # Successfully completed stream
+                return
+
+            except Exception as exc:
+                last_error = exc
+                if tokens_yielded > 0:
+                    logger.error("Error mid-stream from '%s' after %d tokens: %s", model_name, tokens_yielded, exc)
+                    if isinstance(exc, APITimeoutError):
+                        raise NVIDIAClientError("NVIDIA streaming stalled while generating response.") from exc
+                    if isinstance(exc, APIStatusError):
+                        raise _provider_error("NVIDIA streaming error", exc) from exc
+                    raise NVIDIAClientError(f"NVIDIA streaming error: {exc}") from exc
+
+                # Check if this error is a temporary capacity/rate error that warrants a backoff retry
+                if retry_attempt < max_retries and _is_temporary_capacity_error(exc):
+                    delay = _CAPACITY_RETRY_DELAYS[min(retry_attempt, len(_CAPACITY_RETRY_DELAYS) - 1)]
+                    logger.warning(
+                        "Model '%s' hit temporary capacity limit (%s: %s). Retrying (#%d/%d) in %.1fs...",
+                        model_name, type(exc).__name__, exc, retry_attempt + 1, max_retries, delay
+                    )
+                    time.sleep(delay)
+                    continue
+
+                # Not retrying further on this model; break to fallback model
+                break
+
+        has_next = model_idx + 1 < len(models)
+        if has_next:
+            logger.warning(
+                "Primary model '%s' exhausted retries or failed (%s: %s). Falling back to '%s'...",
+                model_name, type(last_error).__name__, last_error, models[model_idx + 1]
+            )
+            continue
+
+        logger.error("All NVIDIA streaming models failed. Last error from '%s': %s", model_name, last_error)
+        if isinstance(last_error, APITimeoutError):
+            raise NVIDIAClientError(
+                "NVIDIA streaming request timed out. The provider did not return within the configured timeout."
+            ) from last_error
+        if isinstance(last_error, APIConnectionError):
+            raise NVIDIAClientError(
+                "Could not connect to NVIDIA while streaming. Check internet access and NVIDIA_BASE_URL."
+            ) from last_error
+        if isinstance(last_error, APIStatusError):
+            raise _provider_error("NVIDIA rejected the streaming request", last_error) from last_error
+        raise NVIDIAClientError(f"NVIDIA streaming request failed: {last_error}") from last_error
 
     if last_error:
         raise NVIDIAClientError(f"NVIDIA streaming request failed: {last_error}")
