@@ -444,7 +444,7 @@ export default function Analysis() {
               </select>
             )}
             <button
-              className="btn"
+              className="btn graph-analysis-btn"
               disabled={!selected.length || graphAnalysisLoading}
               onClick={() => runGraphAnalysis()}
             >
