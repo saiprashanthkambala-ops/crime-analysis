@@ -32,7 +32,7 @@ export default function TimelinePage() {
   if (!items) return <Spinner />
 
   return (
-    <div className="page">
+    <div className="page timeline-page">
       <h2>{t('timeline_title')}</h2>
       <p className="muted">{t('timeline_subtitle')}</p>
       <div className="filter-row">
