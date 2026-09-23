@@ -319,13 +319,15 @@ export default function Analysis() {
             )
           )
         },
-        { timeoutMs: 90000 }
+        {
+          timeoutMs: 90000,
+          history,
+          generatedAnalysis: analysis || null,
+        }
       )
 
       if (data.context) setContext(data.context)
       setAgentTools((prev) => ({ ...prev, [messageIndex + 1]: data.tool || data.mode || 'case_context' }))
-      void generateGraph()
-      void refreshSuspicious()
     } catch (e) {
       const detail = e.name === 'AbortError'
         ? 'Chat timed out after 5 minutes. Check NVIDIA_API_KEY, NVIDIA connectivity, and the backend log.'

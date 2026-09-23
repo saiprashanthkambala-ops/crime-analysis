@@ -1,37 +1,134 @@
 """Case-scoped analysis context built from SQL; Neo4j graph loading is separate."""
 
 import json
+from threading import Lock
+import time
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import Case, Entity, Evidence, Event, Person, Relationship, person_entities
-from ..security import ensure_case_access
+from ..security import ensure_case_access, ensure_case_access_batch
 from .neo4j_service import Neo4jConnectionError, run_read_query
 from .graph_sync import sync_case_to_neo4j
+
+_case_context_cache: dict[tuple[str, ...], tuple[float, dict]] = {}
+_case_context_cache_lock = Lock()
+_CONTEXT_CACHE_TTL_SECONDS = 180
+_CONTEXT_CACHE_MAX_ITEMS = 64
+
+
+def get_cached_case_analysis(case_ids: list[str]) -> dict | None:
+    key = tuple(sorted(case_ids))
+    now = time.monotonic()
+    with _case_context_cache_lock:
+        item = _case_context_cache.get(key)
+        if not item:
+            return None
+        created_at, data = item
+        if now - created_at > _CONTEXT_CACHE_TTL_SECONDS:
+            _case_context_cache.pop(key, None)
+            return None
+        return dict(data)
+
+
+def set_cached_case_analysis(case_ids: list[str], data: dict) -> None:
+    if not case_ids or not data:
+        return
+    key = tuple(sorted(case_ids))
+    now = time.monotonic()
+    with _case_context_cache_lock:
+        _case_context_cache[key] = (now, data)
+        if len(_case_context_cache) > _CONTEXT_CACHE_MAX_ITEMS:
+            oldest = min(_case_context_cache, key=lambda k: _case_context_cache[k][0])
+            _case_context_cache.pop(oldest, None)
+
+
+def invalidate_case_analysis_cache(case_id: str | None = None) -> None:
+    with _case_context_cache_lock:
+        if case_id is None:
+            _case_context_cache.clear()
+        else:
+            to_del = [k for k in _case_context_cache if case_id in k]
+            for k in to_del:
+                _case_context_cache.pop(k, None)
 
 
 def _case_ids(db: Session, user, requested: list[str] | None) -> list[str]:
     if requested:
         ids = [x.strip() for x in requested if x and x.strip()]
     elif user.role == "admin":
-        ids = [c.id for c in db.query(Case).all()]
+        ids = [c[0] for c in db.query(Case.id).all()]
     else:
         ids = [c.id for c in user.assigned_cases]
     if not ids:
         return []
-    for cid in ids:
-        ensure_case_access(db, user, cid)
+    ensure_case_access_batch(db, user, ids)
     return ids
 
 
 def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None = None) -> dict:
-    """Build a bounded SQL context quickly. Does not query Neo4j."""
+    """Build a bounded SQL context quickly with safe in-memory caching."""
     case_ids = _case_ids(db, user, requested_case_ids)
-    cases = db.query(Case).filter(Case.id.in_(case_ids)).all() if case_ids else []
-    entities = db.query(Entity).filter(Entity.case_id.in_(case_ids)).all() if case_ids else []
-    events = db.query(Event).filter(Event.case_id.in_(case_ids)).all() if case_ids else []
-    evidence = db.query(Evidence).filter(Evidence.case_id.in_(case_ids)).all() if case_ids else []
+    if not case_ids:
+        return {
+            "case_ids": [],
+            "cases": [],
+            "counts": {"cases": 0, "people": 0, "entities": 0, "events": 0, "evidence": 0, "relationships": 0},
+            "people": [],
+            "entities": [],
+            "relationships": [],
+            "evidence": [],
+        }
+
+    cached = get_cached_case_analysis(case_ids)
+    if cached is not None:
+        return cached
+
+    cases = (
+        db.query(Case.id, Case.name, Case.status, Case.description)
+        .filter(Case.id.in_(case_ids))
+        .all()
+    )
+    entities = (
+        db.query(
+            Entity.id,
+            Entity.entity_type,
+            Entity.original_value,
+            Entity.normalized_value,
+            Entity.confidence,
+            Entity.extraction_method,
+            Entity.source_reference,
+            Entity.source_document_id,
+            Entity.observed_date,
+            Entity.observed_time,
+        )
+        .filter(Entity.case_id.in_(case_ids))
+        .limit(200)
+        .all()
+    )
+    events = (
+        db.query(Event.person_a_id, Event.person_b_id)
+        .filter(Event.case_id.in_(case_ids))
+        .limit(300)
+        .all()
+    )
+    evidence = (
+        db.query(
+            Evidence.id,
+            Evidence.type,
+            Evidence.person_a_id,
+            Evidence.person_b_id,
+            Evidence.source_reference,
+            Evidence.source_document_id,
+            Evidence.observed_date,
+            Evidence.observed_time,
+            Evidence.confidence,
+        )
+        .filter(Evidence.case_id.in_(case_ids))
+        .limit(200)
+        .all()
+    )
 
     person_ids = set()
     for e in evidence:
@@ -42,7 +139,15 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
     relationships = []
     if person_ids:
         relationships = (
-            db.query(Relationship)
+            db.query(
+                Relationship.id,
+                Relationship.person_a_id,
+                Relationship.person_b_id,
+                Relationship.score,
+                Relationship.strength,
+                Relationship.signals,
+                Relationship.decision,
+            )
             .filter(
                 Relationship.person_a_id.in_(person_ids),
                 Relationship.person_b_id.in_(person_ids),
@@ -52,8 +157,14 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
             .all()
         )
 
-    people = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
-    people_by_id = {p.id: p for p in people}
+    people = (
+        db.query(Person.id, Person.name)
+        .filter(Person.id.in_(person_ids))
+        .all()
+        if person_ids
+        else []
+    )
+    people_by_id = {p.id: p.name for p in people}
 
     entity_rows = [
         {
@@ -75,13 +186,13 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
 
     relation_rows = []
     for r in sorted(relationships, key=lambda x: (x.score or 0), reverse=True)[:75]:
-        pa = people_by_id.get(r.person_a_id)
-        pb = people_by_id.get(r.person_b_id)
+        pname_a = people_by_id.get(r.person_a_id) or r.person_a_id
+        pname_b = people_by_id.get(r.person_b_id) or r.person_b_id
         relation_rows.append(
             {
                 "id": r.id,
-                "person_a": {"id": r.person_a_id, "name": pa.name if pa else r.person_a_id},
-                "person_b": {"id": r.person_b_id, "name": pb.name if pb else r.person_b_id},
+                "person_a": {"id": r.person_a_id, "name": pname_a},
+                "person_b": {"id": r.person_b_id, "name": pname_b},
                 "score": r.score,
                 "strength": r.strength,
                 "signals": r.signals or {},
@@ -104,7 +215,7 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
         for e in evidence[:150]
     ]
 
-    return {
+    result = {
         "case_ids": case_ids,
         "cases": [
             {"id": c.id, "name": c.name, "status": c.status, "description": c.description or ""}
@@ -123,6 +234,8 @@ def build_case_analysis(db: Session, user, requested_case_ids: list[str] | None 
         "relationships": relation_rows,
         "evidence": evidence_rows,
     }
+    set_cached_case_analysis(case_ids, result)
+    return result
 
 
 def build_llm_context(
@@ -135,7 +248,10 @@ def build_llm_context(
     max_evidence: int = 16,
     max_chars: int = 9000,
 ) -> dict:
-    """Create a small deterministic context for the hosted model."""
+    """Create a small deterministic context for the hosted model with memoization."""
+    if "_llm_compact" in context:
+        return context["_llm_compact"]
+
     compact = {
         "cases": context.get("cases", [])[:max_cases],
         "counts": context.get("counts", {}),
@@ -147,6 +263,7 @@ def build_llm_context(
 
     encoded = json.dumps(compact, default=str, ensure_ascii=False, separators=(",", ":"))
     if len(encoded) <= max_chars:
+        context["_llm_compact"] = compact
         return compact
 
     compact["evidence"] = compact["evidence"][:12]
@@ -155,13 +272,16 @@ def build_llm_context(
     compact["people"] = compact["people"][:20]
     encoded = json.dumps(compact, default=str, ensure_ascii=False, separators=(",", ":"))
     if len(encoded) <= max_chars:
+        context["_llm_compact"] = compact
         return compact
 
     compact["evidence"] = compact["evidence"][:5]
     compact["entities"] = compact["entities"][:8]
     compact["relationships"] = compact["relationships"][:8]
     compact["people"] = compact["people"][:12]
+    context["_llm_compact"] = compact
     return compact
+
 
 
 def _sql_graph_fallback(db: Session, case_ids: list[str]) -> dict:

@@ -29,6 +29,7 @@ from .normalization import normalize_value, normalize_name
 from .resolution import resolve_mentions
 from .relationships import discover_relationships
 from .graph_sync import sync_case_to_neo4j
+from .case_analysis import invalidate_case_analysis_cache
 
 logger = logging.getLogger("crime_analysis.pipeline")
 
@@ -425,6 +426,7 @@ def remove_document_artifacts(db: Session, document: Document):
     db.query(Event).filter(Event.source_document_id == document.id).delete()
     db.query(Entity).filter(Entity.source_document_id == document.id).delete()
     db.commit()
+    invalidate_case_analysis_cache(document.case_id)
 
 
 def run_background(document_id: str):
@@ -602,6 +604,7 @@ def recompute_case(db: Session, case_id: str):
 
     # ---- persist evidence
     _rebuild_evidence(db, case_id, persons, event_dicts, seen_ids)
+    invalidate_case_analysis_cache(case_id)
 
 
 def _rebuild_evidence(db, case_id, persons, events, seen_ids):

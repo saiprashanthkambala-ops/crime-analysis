@@ -14,9 +14,35 @@ from .services.neo4j_service import close_driver, init_neo4j, neo4j_status
 from .neo4j.schema import initialize_schema
 
 
+def _ensure_sql_indexes(bind_engine):
+    """Safely and idempotently ensure performance indexes exist on existing relational tables."""
+    statements = [
+        "CREATE INDEX IF NOT EXISTS ix_documents_case_id ON documents (case_id)",
+        "CREATE INDEX IF NOT EXISTS ix_entities_case_id ON entities (case_id)",
+        "CREATE INDEX IF NOT EXISTS ix_events_case_id ON events (case_id)",
+        "CREATE INDEX IF NOT EXISTS ix_events_person_a_id ON events (person_a_id)",
+        "CREATE INDEX IF NOT EXISTS ix_events_person_b_id ON events (person_b_id)",
+        "CREATE INDEX IF NOT EXISTS ix_evidence_case_id ON evidence (case_id)",
+        "CREATE INDEX IF NOT EXISTS ix_evidence_person_a_id ON evidence (person_a_id)",
+        "CREATE INDEX IF NOT EXISTS ix_evidence_person_b_id ON evidence (person_b_id)",
+        "CREATE INDEX IF NOT EXISTS ix_relationships_score ON relationships (score)",
+    ]
+    try:
+        with bind_engine.connect() as conn:
+            for stmt in statements:
+                try:
+                    conn.execute(text(stmt))
+                except Exception:
+                    pass
+            conn.commit()
+    except Exception:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _ensure_sql_indexes(engine)
     if settings.AUTO_SEED:
         run_seed()
     try:

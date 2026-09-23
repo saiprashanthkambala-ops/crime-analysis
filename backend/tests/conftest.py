@@ -39,18 +39,21 @@ def client():
 def auth_headers(client):
     r = client.post("/api/auth/login", json={"username": "investigator1", "password": "investor1"})
     assert r.status_code == 200
-    return {}
+    token = r.cookies.get("crime_analysis_session") or r.json().get("access_token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 @pytest.fixture()
 def investigator2_headers(client):
     r = client.post("/api/auth/login", json={"username": "investigator2", "password": "investor2"})
     assert r.status_code == 200
-    return {}
+    token = r.cookies.get("crime_analysis_session") or r.json().get("access_token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 @pytest.fixture()
 def admin_headers(client):
     r = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
     assert r.status_code == 200
-    return {}
+    token = r.cookies.get("crime_analysis_session") or r.json().get("access_token")
+    return {"Authorization": f"Bearer {token}"} if token else {}

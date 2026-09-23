@@ -43,6 +43,7 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
         case_ids: caseIds,
         message,
         history: options.history || [],
+        generated_analysis: options.generatedAnalysis || null,
       }),
       signal: controller.signal,
       credentials: 'include',

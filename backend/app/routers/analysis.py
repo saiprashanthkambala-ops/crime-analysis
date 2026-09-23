@@ -1,8 +1,10 @@
-"""Case analysis workspace and evidence-grounded NVIDIA chat."""
-
 import hashlib
 import json
+import logging
 import re
+import time
+
+perf_logger = logging.getLogger("perf.analysis")
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -35,6 +37,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     case_ids: list[str] = Field(default_factory=list)
     history: list[dict[str, str]] = Field(default_factory=list, max_length=8)
+    generated_analysis: str | None = None
 
 
 def _llm_messages(
@@ -43,6 +46,7 @@ def _llm_messages(
     question: str | None = None,
     history: list[dict[str, str]] | None = None,
     tool_result: dict | None = None,
+    generated_analysis: str | None = None,
 ):
     system = (
         "You are the Crime Analysis investigation assistant. "
@@ -56,6 +60,8 @@ def _llm_messages(
         "task": task,
         "case_data": build_llm_context(context),
     }
+    if generated_analysis:
+        payload["generated_case_analysis"] = str(generated_analysis)[:2500]
     if question:
         payload["investigator_question"] = question
     if tool_result:
@@ -92,7 +98,12 @@ def _analysis_cache_key(context: dict) -> str:
     return "analysis:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _chat_cache_key(context: dict, message: str, history: list[dict[str, str]] | None) -> str:
+def _chat_cache_key(
+    context: dict,
+    message: str,
+    history: list[dict[str, str]] | None,
+    generated_analysis: str | None = None,
+) -> str:
     payload = {
         "case_ids": context.get("case_ids", []),
         "context": build_llm_context(context),
@@ -102,6 +113,8 @@ def _chat_cache_key(context: dict, message: str, history: list[dict[str, str]] |
             for h in (history or [])[-2:]
         ],
     }
+    if generated_analysis:
+        payload["analysis_hash"] = hashlib.sha256(str(generated_analysis).encode("utf-8")).hexdigest()[:16]
     raw = json.dumps(payload, default=str, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -218,7 +231,9 @@ def nvidia_ping(user: User = Depends(get_current_user), db: Session = Depends(ge
 
 @router.post("/generate")
 def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t_start = time.perf_counter()
     context = build_case_analysis(db, user, body.case_ids or None)
+    t_ctx = time.perf_counter()
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
 
@@ -226,10 +241,19 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
     cached_answer = get_cached_stream(cache_key)
     if cached_answer is not None:
         log_audit(db, user.id, "generate_analysis_cache_hit", "case", ",".join(context["case_ids"]))
+        perf_logger.info(
+            "[PERF] generate_analysis: context=%.1fms (CACHE_HIT), total=%.1fms",
+            (t_ctx - t_start) * 1000,
+            (time.perf_counter() - t_start) * 1000,
+        )
         return _cached_stream_response(cached_answer, context)
+
+    t_llm_start = time.perf_counter()
 
     def event_stream():
         chunks: list[str] = []
+        ttft_recorded = False
+        t_first_token = t_llm_start
         try:
             for token in stream_chat(
                 _llm_messages(
@@ -238,12 +262,23 @@ def generate_analysis(body: AnalysisRequest, user: User = Depends(get_current_us
                     "Highlight important relationships, entity patterns, evidence, and notable observations.",
                 )
             ):
+                if not ttft_recorded:
+                    t_first_token = time.perf_counter()
+                    ttft_recorded = True
                 chunks.append(token)
                 yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
 
+            t_end = time.perf_counter()
             answer = "".join(chunks)
             set_cached_stream(cache_key, answer)
             log_audit(db, user.id, "generate_analysis", "case", ",".join(context["case_ids"]))
+            perf_logger.info(
+                "[PERF] generate_analysis: context=%.1fms, ttft=%.1fms, total_ai=%.1fms, total=%.1fms",
+                (t_ctx - t_start) * 1000,
+                (t_first_token - t_llm_start) * 1000,
+                (t_end - t_llm_start) * 1000,
+                (t_end - t_start) * 1000,
+            )
             yield json.dumps(
                 {"type": "done", "context": context, "mode": "streaming"},
                 default=str,
@@ -288,7 +323,9 @@ def suspicious_relationships(
 
 @router.post("/chat")
 def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t_start = time.perf_counter()
     context = build_case_analysis(db, user, body.case_ids or None)
+    t_ctx = time.perf_counter()
     if not is_configured():
         raise HTTPException(status_code=503, detail="NVIDIA API is not configured. Set NVIDIA_API_KEY on the backend.")
 
@@ -299,39 +336,74 @@ def chat_endpoint(body: ChatRequest, user: User = Depends(get_current_user), db:
             "or suspicious connection candidates."
         )
         log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
+        perf_logger.info(
+            "[PERF] chat (greeting): context=%.1fms, total=%.1fms",
+            (t_ctx - t_start) * 1000,
+            (time.perf_counter() - t_start) * 1000,
+        )
         return {"answer": answer, "context": context, "mode": "deterministic"}
 
     fast_answer = _fast_answer(context, body.message)
     if fast_answer:
         log_audit(db, user.id, "analysis_chat_fast_path", "case", ",".join(context["case_ids"]))
+        perf_logger.info(
+            "[PERF] chat (fast_answer): context=%.1fms, total=%.1fms",
+            (t_ctx - t_start) * 1000,
+            (time.perf_counter() - t_start) * 1000,
+        )
         return {"answer": fast_answer, "context": context, "mode": "deterministic"}
 
     # Fast cache lookup is performed after the deterministic tool decision so
     # cache entries remain tied to the actual tool path and selected-case context.
-    cache_key = _chat_cache_key(context, body.message, body.history)
+    cache_key = _chat_cache_key(context, body.message, body.history, body.generated_analysis)
     cached_answer = get_cached_stream(cache_key)
     if cached_answer is not None:
         log_audit(db, user.id, "analysis_chat_cache_hit", "case", ",".join(context["case_ids"]))
+        perf_logger.info(
+            "[PERF] chat (CACHE_HIT): context=%.1fms, total=%.1fms",
+            (t_ctx - t_start) * 1000,
+            (time.perf_counter() - t_start) * 1000,
+        )
         return _cached_stream_response(cached_answer, context)
 
+    t_tool_start = time.perf_counter()
     tool_result = run_investigation_tools(db, user, context["case_ids"], body.message, context)
+    t_tool_end = time.perf_counter()
+
     messages = _llm_messages(
         context,
         "Answer the investigator's question using ONLY the supplied case data and deterministic tool observations. Be concise and evidence-grounded. Do not invent values.",
         body.message,
         body.history[-4:] if body.history else [],
         tool_result,
+        generated_analysis=body.generated_analysis,
     )
+
+    t_llm_start = time.perf_counter()
 
     def event_stream():
         chunks: list[str] = []
+        ttft_recorded = False
+        t_first_token = t_llm_start
         try:
             for token in stream_chat(messages):
+                if not ttft_recorded:
+                    t_first_token = time.perf_counter()
+                    ttft_recorded = True
                 chunks.append(token)
                 yield json.dumps({"type": "token", "content": token}, ensure_ascii=False, separators=(",", ":")) + "\n"
+            t_end = time.perf_counter()
             answer = "".join(chunks)
             set_cached_stream(cache_key, answer)
             log_audit(db, user.id, "analysis_chat", "case", ",".join(context["case_ids"]))
+            perf_logger.info(
+                "[PERF] chat: context=%.1fms, tool=%.1fms, ttft=%.1fms, total_ai=%.1fms, total=%.1fms",
+                (t_ctx - t_start) * 1000,
+                (t_tool_end - t_tool_start) * 1000,
+                (t_first_token - t_llm_start) * 1000,
+                (t_end - t_llm_start) * 1000,
+                (t_end - t_start) * 1000,
+            )
             yield json.dumps(
                 {
                     "type": "done",

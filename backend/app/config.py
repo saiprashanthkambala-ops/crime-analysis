@@ -19,6 +19,10 @@ class Settings:
             "DATABASE_URL",
             "postgresql+psycopg://crime_analysis:crime_analysis@localhost:5432/crime_analysis",
         )
+        self.DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "20"))
+        self.DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+        self.DB_POOL_TIMEOUT: float = float(os.getenv("DB_POOL_TIMEOUT", "30.0"))
+        self.DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "1800"))
         configured_jwt_secret = os.getenv("JWT_SECRET", "").strip()
         default_jwt_secret = "crime-analysis-dev-secret-change-me-32bytes-minimum"
 

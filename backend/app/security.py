@@ -93,3 +93,30 @@ def ensure_case_access(db: Session, user: User, case_id: str):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Case not found")
     if getattr(user, "id", None) not in [u.id for u in case.users]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not have access to this case")
+
+
+def ensure_case_access_batch(db: Session, user: User, case_ids: list[str]):
+    """Batch-verify case access in single queries. Raise 404 or 403 as appropriate."""
+    if not case_ids or not hasattr(user, "role") or getattr(user, "role", None) == "admin":
+        return
+    from .models import Case, case_users
+
+    unique_ids = list(dict.fromkeys(case_ids))
+    existing_cases = set(
+        c[0] for c in db.query(Case.id).filter(Case.id.in_(unique_ids)).all()
+    )
+    for cid in unique_ids:
+        if cid not in existing_cases:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Case {cid} not found")
+
+    user_id = getattr(user, "id", None)
+    assigned_cases = set(
+        c[0]
+        for c in db.query(case_users.c.case_id)
+        .filter(case_users.c.user_id == user_id, case_users.c.case_id.in_(unique_ids))
+        .all()
+    )
+    for cid in unique_ids:
+        if cid not in assigned_cases:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"You do not have access to case {cid}")
+

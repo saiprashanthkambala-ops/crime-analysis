@@ -23,6 +23,7 @@ def test_nvidia_client_uses_configured_endpoint(monkeypatch):
     monkeypatch.setattr(settings, "NVIDIA_API_KEY", "unit-test-key")
     monkeypatch.setattr(settings, "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
     monkeypatch.setattr(settings, "NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
+    monkeypatch.setattr(settings, "NVIDIA_ENABLE_THINKING", True)
 
     captured = {}
 

@@ -73,7 +73,7 @@ class Case(Base):
 class Document(Base):
     __tablename__ = "documents"
     id = Column(String, primary_key=True)
-    case_id = Column(String, ForeignKey("cases.id"))
+    case_id = Column(String, ForeignKey("cases.id"), index=True)
     filename = Column(String)
     file_type = Column(String)          # pdf | csv | json | txt
     status = Column(String, default="uploaded")
@@ -118,7 +118,7 @@ class Entity(Base):
     extraction_method = Column(String)
     source_document_id = Column(String, ForeignKey("documents.id"))
     source_reference = Column(String)
-    case_id = Column(String, ForeignKey("cases.id"))
+    case_id = Column(String, ForeignKey("cases.id"), index=True)
     observed_date = Column(String)
     observed_time = Column(String)
     date_precision = Column(String, default="exact")
@@ -147,14 +147,14 @@ person_entities = Table(
 class Event(Base):
     __tablename__ = "events"
     id = Column(Integer, primary_key=True)
-    case_id = Column(String, ForeignKey("cases.id"))
+    case_id = Column(String, ForeignKey("cases.id"), index=True)
     event_type = Column(String, index=True)
     description = Column(Text)
     observed_date = Column(String, index=True)
     observed_time = Column(String)
     date_precision = Column(String, default="exact")
-    person_a_id = Column(String, ForeignKey("persons.id"))
-    person_b_id = Column(String, ForeignKey("persons.id"))
+    person_a_id = Column(String, ForeignKey("persons.id"), index=True)
+    person_b_id = Column(String, ForeignKey("persons.id"), index=True)
     source_document_id = Column(String, ForeignKey("documents.id"))
     source_reference = Column(String)
     meta = Column(JSON, default=dict)
@@ -165,15 +165,15 @@ class Evidence(Base):
     __tablename__ = "evidence"
     id = Column(String, primary_key=True)
     type = Column(String, index=True)
-    person_a_id = Column(String, ForeignKey("persons.id"))
-    person_b_id = Column(String, ForeignKey("persons.id"))
+    person_a_id = Column(String, ForeignKey("persons.id"), index=True)
+    person_b_id = Column(String, ForeignKey("persons.id"), index=True)
     source_document_id = Column(String, ForeignKey("documents.id"))
     source_reference = Column(String)  # filename / human-readable source reference
     observed_date = Column(String)
     observed_time = Column(String)
     date_precision = Column(String, default="exact")
     confidence = Column(Float, default=1.0)
-    case_id = Column(String, ForeignKey("cases.id"))
+    case_id = Column(String, ForeignKey("cases.id"), index=True)
     details = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -183,7 +183,7 @@ class Relationship(Base):
     id = Column(String, primary_key=True)
     person_a_id = Column(String, ForeignKey("persons.id"), index=True)
     person_b_id = Column(String, ForeignKey("persons.id"), index=True)
-    score = Column(Float)
+    score = Column(Float, index=True)
     strength = Column(String)  # STRONG | MODERATE | WEAK | INSUFFICIENT EVIDENCE
     signals = Column(JSON, default=list)
     decision = Column(String)  # relevant | incorrect | needs_review
