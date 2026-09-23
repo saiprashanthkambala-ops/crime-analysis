@@ -44,7 +44,7 @@ export default function AdminPage() {
   if (!logs || !users || !cases) return <Spinner />
 
   return (
-    <div className="page">
+    <div className="page app-section-page">
       <h2>{t('administration_title')}</h2>
       {msg && <div className="info-box">{msg}</div>}
 

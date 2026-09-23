@@ -32,7 +32,7 @@ export default function RelationshipDetail() {
   const s = rel.signals
 
   return (
-    <div className="page">
+    <div className="page app-section-page">
       <div className="rel-header">
         <div className="rel-person">
           <Link className="link" to={`/persons/${rel.person_a.id}`}>{rel.person_a.name}</Link>

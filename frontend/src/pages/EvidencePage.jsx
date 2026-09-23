@@ -14,7 +14,7 @@ export default function EvidencePage() {
   if (!evidence) return <Spinner />
 
   return (
-    <div className="page">
+    <div className="page app-section-page">
       <h2>{t('evidence_title')}</h2>
       <p className="muted">{t('evidence_subtitle', { count: evidence.length })}</p>
       <Panel title={t('evidence_records_panel')}>

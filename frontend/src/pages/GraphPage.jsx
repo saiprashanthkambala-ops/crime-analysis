@@ -40,7 +40,7 @@ export default function GraphPage() {
   )
 
   return (
-    <div className="page">
+    <div className="page app-section-page">
       <h2>{t('network_graph_title')}</h2>
       <p className="muted">{t('network_graph_subtitle')}</p>
       <div className="filter-row">

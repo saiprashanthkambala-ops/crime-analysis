@@ -46,7 +46,7 @@ export default function Relationships() {
   })
 
   return (
-    <div className="page">
+    <div className="page app-section-page">
       <h2>{t('relationships_title')}</h2>
       <p className="muted">
         {t('relationships_subtitle')}
