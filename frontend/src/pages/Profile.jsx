@@ -31,7 +31,7 @@ export default function Profile() {
   const c = profile.counts
 
   return (
-    <div className="page">
+    <div className="page app-section-page">
       <div className="profile-head">
         <h2>{profile.name}</h2>
         <span className="muted mono">{profile.person_id}</span>
