@@ -28,10 +28,19 @@ export async function api(path, options = {}) {
 
 export async function streamAnalysisChat(caseIds, message, onToken, options = {}) {
   const controller = new AbortController()
-  const timeout = window.setTimeout(
-    () => controller.abort(),
-    options.timeoutMs || 90000
-  )
+  let abortReason = ''
+  let activityTimer = null
+
+  const resetTimer = (ms, reason) => {
+    if (activityTimer) window.clearTimeout(activityTimer)
+    activityTimer = window.setTimeout(() => {
+      abortReason = reason
+      controller.abort()
+    }, ms)
+  }
+
+  // Initial connection & TTFT timeout (30 seconds)
+  resetTimer(options.connectTimeoutMs || 30000, 'AI response timed out waiting to start.')
 
   try {
     const res = await fetch('/api/analysis/chat', {
@@ -73,6 +82,9 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
       return { context: body.context || null, mode: body.mode || 'deterministic' }
     }
 
+    // Switch to inter-token idle timeout once stream begins
+    resetTimer(options.idleTimeoutMs || 25000, 'AI streaming connection stalled.')
+
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -83,6 +95,7 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
+      resetTimer(options.idleTimeoutMs || 25000, 'AI streaming connection stalled.')
       buffer += decoder.decode(value, { stream: true })
 
       const lines = buffer.split('\n')
@@ -111,15 +124,33 @@ export async function streamAnalysisChat(caseIds, message, onToken, options = {}
     }
 
     return { context, tool, mode }
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(abortReason || 'AI chat request timed out.')
+    }
+    throw err
   } finally {
-    window.clearTimeout(timeout)
+    if (activityTimer) window.clearTimeout(activityTimer)
   }
 }
 
 
 export async function streamAnalysisGenerate(caseIds, onToken, options = {}) {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), options.timeoutMs || 90000)
+  let abortReason = ''
+  let activityTimer = null
+
+  const resetTimer = (ms, reason) => {
+    if (activityTimer) window.clearTimeout(activityTimer)
+    activityTimer = window.setTimeout(() => {
+      abortReason = reason
+      controller.abort()
+    }, ms)
+  }
+
+  // Initial connection & TTFT timeout (30 seconds)
+  resetTimer(options.connectTimeoutMs || 30000, 'Analysis generation timed out waiting for AI to start.')
+
   try {
     const res = await fetch('/api/analysis/generate', {
       method: 'POST',
@@ -137,6 +168,10 @@ export async function streamAnalysisGenerate(caseIds, onToken, options = {}) {
       throw new Error(detail)
     }
     if (!res.body) throw new Error('Streaming is not supported by this browser.')
+
+    // Switch to inter-token idle timeout once stream begins
+    resetTimer(options.idleTimeoutMs || 25000, 'Analysis streaming stalled.')
+
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -145,6 +180,7 @@ export async function streamAnalysisGenerate(caseIds, onToken, options = {}) {
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
+      resetTimer(options.idleTimeoutMs || 25000, 'Analysis streaming stalled.')
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
@@ -163,10 +199,16 @@ export async function streamAnalysisGenerate(caseIds, onToken, options = {}) {
       else if (event.type === 'error') throw new Error(event.detail || 'Analysis streaming request failed.')
     }
     return { context, mode: 'streaming' }
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(abortReason || 'Analysis generation timed out.')
+    }
+    throw err
   } finally {
-    window.clearTimeout(timeout)
+    if (activityTimer) window.clearTimeout(activityTimer)
   }
 }
+
 
 export class ApiError extends Error {
   constructor(detail, status, body) {

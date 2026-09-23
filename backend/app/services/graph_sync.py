@@ -84,24 +84,44 @@ def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
                 "status": case.status,
             })
 
-            for d in documents:
-                _merge_id_node(tx, "Document", d.id, {
-                    "id": d.id, "filename": d.filename, "file_type": d.file_type,
-                    "status": d.status, "case_id": case_id,
-                })
+            if documents:
+                doc_batch = [
+                    {
+                        "id": d.id, "filename": d.filename, "file_type": d.file_type,
+                        "status": d.status, "case_id": case_id,
+                    }
+                    for d in documents
+                ]
                 tx.run(
-                    "MATCH (c:Case {id: $case_id}), (d:Document {id: $doc_id}) "
-                    "MERGE (d)-[:BELONGS_TO]->(c)", case_id=case_id, doc_id=d.id
+                    """
+                    UNWIND $batch AS d
+                    MERGE (doc:Document {id: d.id})
+                    SET doc += d
+                    WITH doc
+                    MATCH (c:Case {id: $case_id})
+                    MERGE (doc)-[:BELONGS_TO]->(c)
+                    """,
+                    batch=doc_batch, case_id=case_id,
                 ).consume()
 
-            for p in persons:
-                _merge_id_node(tx, "Person", p.id, {
-                    "id": p.id, "name": p.name, "resolution_json": _neo4j_json(p.resolution or {}),
-                    "case_id": case_id,
-                })
+            if persons:
+                person_batch = [
+                    {
+                        "id": p.id, "name": p.name, "resolution_json": _neo4j_json(p.resolution or {}),
+                        "case_id": case_id,
+                    }
+                    for p in persons
+                ]
                 tx.run(
-                    "MATCH (p:Person {id: $person_id}), (c:Case {id: $case_id}) "
-                    "MERGE (p)-[:INVOLVED_IN]->(c)", person_id=p.id, case_id=case_id
+                    """
+                    UNWIND $batch AS p
+                    MERGE (person:Person {id: p.id})
+                    SET person += p
+                    WITH person
+                    MATCH (c:Case {id: $case_id})
+                    MERGE (person)-[:INVOLVED_IN]->(c)
+                    """,
+                    batch=person_batch, case_id=case_id,
                 ).consume()
 
             # Identifier entities are case-scoped and keyed by normalized value.
@@ -109,24 +129,31 @@ def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
                 "PHONE": "Phone", "VEHICLE": "Vehicle", "BANK_ACCOUNT": "BankAccount",
                 "LOCATION": "Location",
             }
+            entities_by_label: dict[str, list[dict]] = {}
             for e in entities:
                 label = entity_labels.get(e.entity_type)
-                if not label:
+                if not label or not e.normalized_value:
                     continue
-                key = e.normalized_value
-                if not key:
-                    continue
-                _merge_node(tx, label, key, {
-                    "key": key, "value": e.original_value, "normalized_value": e.normalized_value,
+                entities_by_label.setdefault(label, []).append({
+                    "key": e.normalized_value, "value": e.original_value,
+                    "normalized_value": e.normalized_value,
                     "entity_type": e.entity_type, "case_id": case_id,
                 })
+
+            for label, e_batch in entities_by_label.items():
                 tx.run(
-                    f"MATCH (n:{label} {{key: $key}}), (c:Case {{id: $case_id}}) "
-                    "MERGE (n)-[:BELONGS_TO]->(c)",
-                    key=key, case_id=case_id
+                    f"""
+                    UNWIND $batch AS e
+                    MERGE (n:{label} {{key: e.key}})
+                    SET n += e
+                    WITH n
+                    MATCH (c:Case {{id: $case_id}})
+                    MERGE (n)-[:BELONGS_TO]->(c)
+                    """,
+                    batch=e_batch, case_id=case_id,
                 ).consume()
 
-            # Link identifier entities to their canonical persons using the existing association table.
+            # Link identifier entities to their canonical persons
             links = (
                 db.query(person_entities.c.person_id, person_entities.c.entity_id, person_entities.c.role)
                 .join(Entity, Entity.id == person_entities.c.entity_id)
@@ -136,83 +163,146 @@ def _sync_case_to_neo4j(db: Session, case_id: str) -> dict:
             label_by_entity_id = {e.id: entity_labels.get(e.entity_type) for e in entities}
             key_by_entity_id = {e.id: e.normalized_value for e in entities}
             rel_by_role = {"phone": "USES_PHONE", "vehicle": "OWNS_VEHICLE", "account": "OWNS_ACCOUNT", "location": "VISITED"}
+
+            links_by_type: dict[tuple[str, str], list[dict]] = {}
             for pid, eid, role in links:
                 label = label_by_entity_id.get(eid)
                 key = key_by_entity_id.get(eid)
                 rel_type = rel_by_role.get(role)
                 if not label or not key or not rel_type:
                     continue
+                links_by_type.setdefault((label, rel_type), []).append({"pid": pid, "key": key})
+
+            for (label, rel_type), link_batch in links_by_type.items():
                 tx.run(
-                    f"MATCH (p:Person {{id: $pid}}), (n:{label} {{key: $key}}) "
-                    f"MERGE (p)-[:{rel_type}]->(n)", pid=pid, key=key
+                    f"""
+                    UNWIND $batch AS lk
+                    MATCH (p:Person {{id: lk.pid}}), (n:{label} {{key: lk.key}})
+                    MERGE (p)-[:{rel_type}]->(n)
+                    """,
+                    batch=link_batch,
                 ).consume()
 
-            for ev in events:
-                _merge_id_node(tx, "Event", str(ev.id), {
-                    "id": str(ev.id), "type": ev.event_type, "description": ev.description,
-                    "date": ev.observed_date, "time": ev.observed_time,
-                    "source_document_id": ev.source_document_id, "case_id": case_id,
-                })
+            if events:
+                event_batch = [
+                    {
+                        "id": str(ev.id), "type": ev.event_type, "description": ev.description,
+                        "date": ev.observed_date, "time": ev.observed_time,
+                        "source_document_id": ev.source_document_id, "case_id": case_id,
+                    }
+                    for ev in events
+                ]
                 tx.run(
-                    "MATCH (e:Event {id: $event_id}), (c:Case {id: $case_id}) "
-                    "MERGE (e)-[:BELONGS_TO]->(c)",
-                    event_id=str(ev.id), case_id=case_id
+                    """
+                    UNWIND $batch AS ev
+                    MERGE (e:Event {id: ev.id})
+                    SET e += ev
+                    WITH e
+                    MATCH (c:Case {id: $case_id})
+                    MERGE (e)-[:BELONGS_TO]->(c)
+                    """,
+                    batch=event_batch, case_id=case_id,
                 ).consume()
-                if ev.person_a_id:
+
+                participations = []
+                direct_event_rels = {}
+                for ev in events:
+                    eid_str = str(ev.id)
+                    if ev.person_a_id:
+                        participations.append({"pid": ev.person_a_id, "eid": eid_str})
+                    if ev.person_b_id and ev.person_b_id != ev.person_a_id:
+                        participations.append({"pid": ev.person_b_id, "eid": eid_str})
+                    if ev.person_a_id and ev.person_b_id and ev.person_a_id != ev.person_b_id:
+                        rel_type = "CALLED" if ev.event_type == "CALL" else "TRANSFERRED_TO" if ev.event_type == "TRANSACTION" else "ASSOCIATED_WITH"
+                        direct_event_rels.setdefault(rel_type, []).append({
+                            "a": ev.person_a_id, "b": ev.person_b_id, "eid": eid_str,
+                            "date": ev.observed_date, "time": ev.observed_time, "source": ev.source_document_id,
+                        })
+
+                if participations:
                     tx.run(
-                        "MATCH (p:Person {id: $pid}), (e:Event {id: $eid}) "
-                        "MERGE (p)-[:PARTICIPATED_IN]->(e)", pid=ev.person_a_id, eid=str(ev.id)
-                    ).consume()
-                if ev.person_b_id and ev.person_b_id != ev.person_a_id:
-                    tx.run(
-                        "MATCH (p:Person {id: $pid}), (e:Event {id: $eid}) "
-                        "MERGE (p)-[:PARTICIPATED_IN]->(e)", pid=ev.person_b_id, eid=str(ev.id)
-                    ).consume()
-                if ev.person_a_id and ev.person_b_id and ev.person_a_id != ev.person_b_id:
-                    event_rel = "CALLED" if ev.event_type == "CALL" else "TRANSFERRED_TO" if ev.event_type == "TRANSACTION" else "ASSOCIATED_WITH"
-                    tx.run(
-                        f"MATCH (a:Person {{id: $a}}), (b:Person {{id: $b}}) "
-                        f"MERGE (a)-[r:{event_rel} {{event_id: $eid}}]->(b) "
-                        "SET r.date=$date, r.time=$time, r.source_document_id=$source",
-                        a=ev.person_a_id, b=ev.person_b_id, eid=str(ev.id),
-                        date=ev.observed_date, time=ev.observed_time, source=ev.source_document_id,
+                        """
+                        UNWIND $batch AS part
+                        MATCH (p:Person {id: part.pid}), (e:Event {id: part.eid})
+                        MERGE (p)-[:PARTICIPATED_IN]->(e)
+                        """,
+                        batch=participations,
                     ).consume()
 
-            for evd in evidence:
-                _merge_id_node(tx, "Evidence", evd.id, {
-                    "id": evd.id, "type": evd.type, "confidence": evd.confidence,
-                    "source_document_id": evd.source_document_id, "source_reference": evd.source_reference,
-                    "date": evd.observed_date, "time": evd.observed_time, "case_id": case_id,
-                    "details_json": _neo4j_json(evd.details or {}),
-                })
-                tx.run(
-                    "MATCH (e:Evidence {id: $evidence_id}), (c:Case {id: $case_id}) "
-                    "MERGE (e)-[:BELONGS_TO]->(c)",
-                    evidence_id=evd.id, case_id=case_id
-                ).consume()
-                if evd.person_a_id:
+                for rel_type, r_batch in direct_event_rels.items():
                     tx.run(
-                        "MATCH (p:Person {id: $pid}), (e:Evidence {id: $eid}) "
-                        "MERGE (p)-[:SUPPORTED_BY]->(e)", pid=evd.person_a_id, eid=evd.id
-                    ).consume()
-                if evd.person_b_id and evd.person_b_id != evd.person_a_id:
-                    tx.run(
-                        "MATCH (p:Person {id: $pid}), (e:Evidence {id: $eid}) "
-                        "MERGE (p)-[:SUPPORTED_BY]->(e)", pid=evd.person_b_id, eid=evd.id
+                        f"""
+                        UNWIND $batch AS r
+                        MATCH (a:Person {{id: r.a}}), (b:Person {{id: r.b}})
+                        MERGE (a)-[rel:{rel_type} {{event_id: r.eid}}]->(b)
+                        SET rel.date = r.date, rel.time = r.time, rel.source_document_id = r.source
+                        """,
+                        batch=r_batch,
                     ).consume()
 
-            for r in relationships:
-                if r.person_a_id == r.person_b_id:
-                    continue
-                a, b = sorted([r.person_a_id, r.person_b_id])
+            if evidence:
+                evidence_batch = [
+                    {
+                        "id": evd.id, "type": evd.type, "confidence": evd.confidence,
+                        "source_document_id": evd.source_document_id, "source_reference": evd.source_reference,
+                        "date": evd.observed_date, "time": evd.observed_time, "case_id": case_id,
+                        "details_json": _neo4j_json(evd.details or {}),
+                    }
+                    for evd in evidence
+                ]
                 tx.run(
-                    "MATCH (a:Person {id: $a}), (b:Person {id: $b}) "
-                    "MERGE (a)-[r:CONNECTED_TO]->(b) "
-                    "SET r.relationship_id=$rid, r.score=$score, r.strength=$strength, r.signals=$signals",
-                    a=a, b=b, rid=r.id, score=r.score, strength=r.strength, signals=_neo4j_json(r.signals or {}),
+                    """
+                    UNWIND $batch AS evd
+                    MERGE (e:Evidence {id: evd.id})
+                    SET e += evd
+                    WITH e
+                    MATCH (c:Case {id: $case_id})
+                    MERGE (e)-[:BELONGS_TO]->(c)
+                    """,
+                    batch=evidence_batch, case_id=case_id,
                 ).consume()
+
+                supports = []
+                for evd in evidence:
+                    if evd.person_a_id:
+                        supports.append({"pid": evd.person_a_id, "eid": evd.id})
+                    if evd.person_b_id and evd.person_b_id != evd.person_a_id:
+                        supports.append({"pid": evd.person_b_id, "eid": evd.id})
+
+                if supports:
+                    tx.run(
+                        """
+                        UNWIND $batch AS s
+                        MATCH (p:Person {id: s.pid}), (e:Evidence {id: s.eid})
+                        MERGE (p)-[:SUPPORTED_BY]->(e)
+                        """,
+                        batch=supports,
+                    ).consume()
+
+            if relationships:
+                rel_batch = []
+                for r in relationships:
+                    if r.person_a_id == r.person_b_id:
+                        continue
+                    a, b = sorted([r.person_a_id, r.person_b_id])
+                    rel_batch.append({
+                        "a": a, "b": b, "rid": r.id, "score": r.score,
+                        "strength": r.strength, "signals": _neo4j_json(r.signals or {}),
+                    })
+                if rel_batch:
+                    tx.run(
+                        """
+                        UNWIND $batch AS r
+                        MATCH (a:Person {id: r.a}), (b:Person {id: r.b})
+                        MERGE (a)-[rel:CONNECTED_TO]->(b)
+                        SET rel.relationship_id = r.rid, rel.score = r.score,
+                            rel.strength = r.strength, rel.signals = r.signals
+                        """,
+                        batch=rel_batch,
+                    ).consume()
 
         session.execute_write(work)
+
 
     return {
         "case_id": case_id,

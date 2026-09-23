@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 const AnalysisRuntimeContext = createContext(null)
 const STORAGE_KEY = 'crime_analysis_runtime_v1'
@@ -39,6 +39,8 @@ function loadPersistedState() {
 
 export function AnalysisRuntimeProvider({ children }) {
   const [state, setState] = useState(loadPersistedState)
+  const stateRef = useRef(state)
+  stateRef.current = state
 
   const update = (key) => (value) => {
     setState((prev) => ({
@@ -47,16 +49,34 @@ export function AnalysisRuntimeProvider({ children }) {
     }))
   }
 
-  const clearRuntime = () => setState(readInitialState())
-
-  useMemo(() => {
+  const clearRuntime = () => {
+    setState(readInitialState())
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      sessionStorage.removeItem(STORAGE_KEY)
+    } catch {}
+  }
+
+  const saveToStorage = useCallback(() => {
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stateRef.current))
     } catch {
       // Ignore storage quota/private-mode failures; in-memory navigation state still works.
     }
-    return null
-  }, [state])
+  }, [])
+
+  // Debounced write during active streaming; prompt write when idle or done
+  useEffect(() => {
+    const delay = (state.generating || state.chatting) ? 1200 : 300
+    const timer = setTimeout(saveToStorage, delay)
+    return () => clearTimeout(timer)
+  }, [state, saveToStorage])
+
+  // Flush state immediately on page unload
+  useEffect(() => {
+    window.addEventListener('beforeunload', saveToStorage)
+    return () => window.removeEventListener('beforeunload', saveToStorage)
+  }, [saveToStorage])
+
 
   const value = useMemo(() => ({
     ...state,

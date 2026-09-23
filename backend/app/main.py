@@ -26,6 +26,7 @@ def _ensure_sql_indexes(bind_engine):
         "CREATE INDEX IF NOT EXISTS ix_evidence_person_a_id ON evidence (person_a_id)",
         "CREATE INDEX IF NOT EXISTS ix_evidence_person_b_id ON evidence (person_b_id)",
         "CREATE INDEX IF NOT EXISTS ix_relationships_score ON relationships (score)",
+        "CREATE INDEX IF NOT EXISTS ix_relationships_person_a_b ON relationships (person_a_id, person_b_id)",
     ]
     try:
         with bind_engine.connect() as conn:
@@ -86,9 +87,39 @@ app.include_router(analysis.router)
 app.include_router(graph_analysis.router)
 
 
+import threading
+import time
+
+_cached_neo4j = {"data": None, "expires_at": 0.0}
+_cached_neo4j_lock = threading.Lock()
+
+
+def get_cached_neo4j_status(ttl_seconds: float = 30.0) -> dict:
+    from .services import neo4j_service
+    key = (
+        settings.NEO4J_URI,
+        settings.NEO4J_USERNAME,
+        settings.NEO4J_PASSWORD,
+        id(getattr(neo4j_service, "_driver", None)),
+    )
+    now = time.monotonic()
+    with _cached_neo4j_lock:
+        if (
+            _cached_neo4j["data"] is not None
+            and _cached_neo4j.get("key") == key
+            and now < _cached_neo4j["expires_at"]
+        ):
+            return _cached_neo4j["data"]
+        status = neo4j_status()
+        _cached_neo4j["data"] = status
+        _cached_neo4j["key"] = key
+        _cached_neo4j["expires_at"] = now + ttl_seconds
+        return status
+
+
 @app.get("/health")
 def health():
-    return {"status": "healthy", "neo4j": neo4j_status()}
+    return {"status": "healthy", "neo4j": get_cached_neo4j_status()}
 
 
 @app.get("/api/health/database")

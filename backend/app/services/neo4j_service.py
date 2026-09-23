@@ -125,15 +125,17 @@ def _run_query(query: str, parameters: Optional[dict[str, Any]] = None) -> list[
                 detail=redact_secrets(retry_exc),
             ) from retry_exc
         except DriverError as retry_exc:
+            reason = "unavailable" if isinstance(exc, (ServiceUnavailable, SessionExpired)) or isinstance(retry_exc, ServiceUnavailable) else "connection_error"
             raise Neo4jConnectionError(
                 "Neo4j connection error.",
-                reason="connection_error",
+                reason=reason,
                 detail=redact_secrets(retry_exc),
             ) from retry_exc
         except Exception as retry_exc:
+            reason = "unavailable" if isinstance(exc, (ServiceUnavailable, SessionExpired)) else "connection_error"
             raise Neo4jConnectionError(
                 "Neo4j connection error after retry.",
-                reason="connection_error",
+                reason=reason,
                 detail=redact_secrets(retry_exc),
             ) from retry_exc
     except Neo4jError as exc:

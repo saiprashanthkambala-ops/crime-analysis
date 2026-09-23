@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import User
 from ..security import get_current_user, log_audit
@@ -207,7 +208,8 @@ def get_analysis_graph(case_ids: str | None = None, user: User = Depends(get_cur
 def nvidia_status(user: User = Depends(get_current_user)):
     return {
         "configured": is_configured(),
-        "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "model": settings.NVIDIA_MODEL,
+        "fallback_model": settings.NVIDIA_FALLBACK_MODEL,
         "message": "NVIDIA API key is configured on the backend."
         if is_configured()
         else "NVIDIA API key is missing from the backend environment.",
@@ -222,7 +224,7 @@ def nvidia_ping(user: User = Depends(get_current_user), db: Session = Depends(ge
         result = nvidia_chat([{"role": "user", "content": "Reply with exactly: NVIDIA_OK"}])
         content = result.choices[0].message.content or ""
         log_audit(db, user.id, "nvidia_ping", "system", None)
-        return {"ok": True, "model": "nvidia/nemotron-3.5-lightning-30b-a3b", "response": content}
+        return {"ok": True, "model": getattr(result, "model", settings.NVIDIA_MODEL), "response": content}
     except NVIDIAClientError as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
     except Exception:

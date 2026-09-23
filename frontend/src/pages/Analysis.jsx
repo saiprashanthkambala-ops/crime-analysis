@@ -192,52 +192,40 @@ export default function Analysis() {
     setAnalysis('')
     startEstimatedProgress(setAnalysisProgress, analysisProgressTimer)
 
-    try {
-      // Stream the AI analysis directly into the UI. Graph metrics are independent
-      // and start in parallel so neither waits for the other.
-      const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
-      const graphPromise = firstGraphCase
-        ? (setGraphAnalysisCaseId(firstGraphCase),
-          setGraphAnalysisLoading(true),
-          withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase)))
-        : Promise.resolve(null)
+    // Run graph analysis asynchronously in background so it never blocks or fails AI generation
+    const firstGraphCase = graphAnalysisCaseId || selected[0] || ''
+    if (firstGraphCase) {
+      setGraphAnalysisCaseId(firstGraphCase)
+      setGraphAnalysisLoading(true)
+      withTimeout('/graph-analysis?case_ids=' + encodeURIComponent(firstGraphCase))
+        .then((data) => {
+          if (data) setGraphAnalysis(data)
+        })
+        .catch((e) => {
+          console.warn('Graph analysis background load notice:', e.message)
+        })
+        .finally(() => {
+          setGraphAnalysisLoading(false)
+        })
+    }
 
-      const analysisPromise = streamAnalysisGenerate(
+    try {
+      const analysisResult = await streamAnalysisGenerate(
         selected,
-        (token) => setAnalysis((prev) => (prev || '') + token),
-        { timeoutMs: 90000 }
+        (token) => setAnalysis((prev) => (prev || '') + token)
       )
 
-      const [analysisResult, graphResult] = await Promise.allSettled([
-        analysisPromise,
-        graphPromise,
-      ])
-
-      if (analysisResult.status !== 'fulfilled') {
-        throw analysisResult.reason
-      }
-
-      if (analysisResult.value.context) {
-        setContext(analysisResult.value.context)
+      if (analysisResult?.context) {
+        setContext(analysisResult.context)
       }
       finishProgress(setAnalysisProgress, analysisProgressTimer)
-
-      if (graphResult.status === 'fulfilled' && graphResult.value) {
-        setGraphAnalysis(graphResult.value)
-      } else if (graphResult.status === 'rejected' && graphResult.reason?.name !== 'AbortError') {
-        setErr('AI analysis succeeded, but graph analysis could not be loaded: ' + graphResult.reason.message)
-      }
-
-      // The selected-case graph itself is independent and remains available
-      // through the existing Generate Graph action.
     } catch (e) {
       setErr(
         e.name === 'AbortError'
-          ? 'Analysis timed out after 90 seconds. Check NVIDIA_API_KEY and the backend server log.'
+          ? 'Analysis timed out waiting for AI provider. Check NVIDIA API key and backend logs.'
           : e.message
       )
     } finally {
-      setGraphAnalysisLoading(false)
       finishProgress(setAnalysisProgress, analysisProgressTimer)
       setGenerating(false)
     }
@@ -320,7 +308,6 @@ export default function Analysis() {
           )
         },
         {
-          timeoutMs: 90000,
           history,
           generatedAnalysis: analysis || null,
         }
@@ -330,7 +317,7 @@ export default function Analysis() {
       setAgentTools((prev) => ({ ...prev, [messageIndex + 1]: data.tool || data.mode || 'case_context' }))
     } catch (e) {
       const detail = e.name === 'AbortError'
-        ? 'Chat timed out after 5 minutes. Check NVIDIA_API_KEY, NVIDIA connectivity, and the backend log.'
+        ? 'Chat timed out waiting for AI provider. Check NVIDIA API key and backend logs.'
         : e.message
       setErr(detail)
       setMessages((prev) =>

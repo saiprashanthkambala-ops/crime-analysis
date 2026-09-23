@@ -58,12 +58,22 @@ class Settings:
         self.NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
         self.NVIDIA_BASE_URL: str = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
         self.NVIDIA_MODEL: str = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
+        self.NVIDIA_FALLBACK_MODEL: str = os.getenv(
+            "NVIDIA_FALLBACK_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+        )
         self.NVIDIA_TEMPERATURE: float = float(os.getenv("NVIDIA_TEMPERATURE", "0.3"))
         self.NVIDIA_TOP_P: float = float(os.getenv("NVIDIA_TOP_P", "0.95"))
         self.NVIDIA_MAX_TOKENS: int = int(os.getenv("NVIDIA_MAX_TOKENS", "1024"))
         self.NVIDIA_ENABLE_THINKING: bool = os.getenv("NVIDIA_ENABLE_THINKING", "0") == "1"
         self.NVIDIA_REASONING_BUDGET: int = int(os.getenv("NVIDIA_REASONING_BUDGET", "512"))
-        # Interactive requests should fail fast rather than hanging for minutes.
+        # Time-to-first-token (TTFT) and inter-token idle timeouts for streaming
+        self.NVIDIA_TTFT_TIMEOUT_SECONDS: float = float(
+            os.getenv("NVIDIA_TTFT_TIMEOUT_SECONDS", "15.0")
+        )
+        self.NVIDIA_INTER_TOKEN_TIMEOUT_SECONDS: float = float(
+            os.getenv("NVIDIA_INTER_TOKEN_TIMEOUT_SECONDS", "15.0")
+        )
+        # Interactive requests overall upper bound
         self.NVIDIA_TIMEOUT_SECONDS: float = float(os.getenv("NVIDIA_TIMEOUT_SECONDS", "90"))
 
         self.TESSERACT_CMD: str = os.getenv("TESSERACT_CMD", "tesseract")

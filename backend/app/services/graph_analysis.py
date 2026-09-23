@@ -181,22 +181,33 @@ def _pagerank_weighted(graph: nx.Graph, alpha: float = 0.85, max_iter: int = 100
 def _communities(graph: nx.Graph) -> list[dict[str, Any]]:
     if graph.number_of_nodes() == 0:
         return []
-    if graph.number_of_nodes() <= 250:
-        communities = nx.community.louvain_communities(
-            graph,
-            weight="score",
-            threshold=1e-4,
-            max_level=3,
-            seed=42,
-        )
-    else:
-        # Label propagation keeps very large interactive graphs bounded.
-        communities = nx.community.asyn_lpa_communities(
-            graph,
-            weight="score",
-            seed=42,
-        )
+    try:
+        if graph.number_of_nodes() <= 250:
+            communities = nx.community.louvain_communities(
+                graph,
+                weight="score",
+                threshold=1e-4,
+                max_level=3,
+                seed=42,
+            )
+        else:
+            communities = nx.community.asyn_lpa_communities(
+                graph,
+                weight="score",
+                seed=42,
+            )
+    except Exception:
+        communities = list(nx.connected_components(graph))
+
     rows = []
+    for idx, members in enumerate(sorted(communities, key=lambda s: min(s) if s else "")):
+        for node_id in sorted(members):
+            rows.append({
+                "entity_id": node_id,
+                "name": graph.nodes[node_id].get("name", node_id),
+                "communityId": idx,
+            })
+    return rows
 
 
 def _components(graph: nx.Graph) -> list[dict[str, Any]]:
